@@ -136,7 +136,7 @@ def process_single_image(args):
     (img_bgr, filename, gt, model_configs, config, base_dir, idx, total_images) = args
     
     model = init_model_for_process(model_configs, config["dataset"], config["model"], config["device"])
-    setproctitle.setproctitle(f"({idx+1}/{total_images})_SpaEvO_{config['dataset']}_{config['model']}")
+    setproctitle.setproctitle(f"({idx+1}/{total_images})_SpaEvO_{config['dataset']}_{config['model']}_{config['success_threshold']}")
 
     # Prepare inputs
     img_tensor_bgr = torch.from_numpy(img_bgr.copy()).unsqueeze(0).permute(0, 3, 1, 2).float().to(config["device"])
@@ -192,7 +192,9 @@ def process_single_image(args):
     adv_img_np = adv_img_bgr.squeeze(0).permute(1, 2, 0).numpy().astype(np.uint8)
     
     Image.fromarray(img_bgr[:, :, ::-1]).save(os.path.join(current_img_save_dir, "original.png"))
-    Image.fromarray(gt).save(os.path.join(current_img_save_dir, "gt.png"))
+    visualize_segmentation(img_bgr, gt,
+                        save_path=os.path.join(current_img_save_dir, "gt.png"),
+                        alpha=1.0, dataset=config["dataset"])
     
 
     
@@ -218,9 +220,9 @@ def process_single_image(args):
     visualize_segmentation(img_bgr, ori_pred,
                         save_path=os.path.join(current_img_save_dir, "ori_seg.png"),
                         alpha=0.5, dataset=config["dataset"])
-    visualize_segmentation(adv_img_np, adv_pred,
-                        save_path=os.path.join(current_img_save_dir, "adv_seg.png"),
-                        alpha=0.5, dataset=config["dataset"])
+    visualize_segmentation(img_bgr, ori_pred,
+                        save_path=os.path.join(current_img_save_dir, "ori_seg_only.png"),
+                        alpha=1.0, dataset=config["dataset"])
 
     # 각 이미지별 결과를 JSON으로 저장
     # foreground 픽셀 수 및 공격 실패 픽셀 수 계산
@@ -269,6 +271,11 @@ def process_single_image(args):
             # snapshot_np is (H, W, C) in BGR, convert to RGB for PIL
             Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
             
+            # Delta 이미지 저장
+            delta_img = np.abs(img_bgr.astype(np.int16) - snapshot_np.astype(np.int16)).astype(np.uint8)
+            Image.fromarray(delta_img).save(os.path.join(save_q_dir, "delta.png"))
+            
+            # Adversarial 세그멘테이션 저장
             visualize_segmentation(snapshot_np, snapshot_pred, 
                 save_path=os.path.join(save_q_dir, "adv_seg.png"),
                 alpha=0.5, dataset=config["dataset"])
@@ -316,6 +323,11 @@ def process_single_image(args):
             os.makedirs(save_q_dir, exist_ok=True)
             Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
             
+            # Delta 이미지 저장
+            delta_img = np.abs(img_bgr.astype(np.int16) - snapshot_np.astype(np.int16)).astype(np.uint8)
+            Image.fromarray(delta_img).save(os.path.join(save_q_dir, "delta.png"))
+            
+            # Adversarial 세그멘테이션 저장
             visualize_segmentation(snapshot_np, snapshot_pred, 
                 save_path=os.path.join(save_q_dir, "adv_seg.png"),
                 alpha=0.5, dataset=config["dataset"])
@@ -324,7 +336,7 @@ def process_single_image(args):
                 alpha=1.0, dataset=config["dataset"])
             
             query_history.append({
-                'query': final_query,
+                'query': final_save_query,
                 'l0': l0_at_q,
                 'pixel_ratio': float(pixel_ratio_at_q),
                 'impact': float(impact_at_q),
@@ -389,6 +401,10 @@ def main(config):
             "pspnet": {
                 "config": 'configs/pspnet/pspnet_r101-d8_4xb2-80k_cityscapes-512x1024.py',
                 "checkpoint": '../ckpt/pspnet_r101-d8_512x1024_80k_cityscapes_20200606_112211-e1e1100f.pth'
+            },
+            "setr": {
+                "config": 'configs/setr/setr_vit-l_pup_8xb1-80k_cityscapes-768x768.py',
+                "checkpoint": '../ckpt/setr_pup_vit-large_8x1_768x768_80k_cityscapes_20211122_155115-f6f37b8f.pth'
             }
         },
         "ade20k": {
@@ -464,6 +480,7 @@ def main(config):
     snapshot_interval = config.get("snapshot_interval", 200)
     levels = config["max_query"] // snapshot_interval + 1
     adv_img_lists = [[] for _ in range(levels)]
+    final_adv_img_list = []
     l0_metrics = []
     ratio_metrics = []
     impact_metrics = []
@@ -499,6 +516,10 @@ def main(config):
                 target_img = snapshots['final']
             
             adv_img_lists[i].append(np.transpose(target_img, (1, 2, 0)).astype(np.uint8))
+        
+        # Collect final image for final evaluation
+        final_img = result['snapshots']['final']
+        final_adv_img_list.append(np.transpose(final_img, (1, 2, 0)).astype(np.uint8))
         
         l0_metrics.append(result['l0'])
         ratio_metrics.append(result['ratio'])
@@ -557,15 +578,46 @@ def main(config):
             oacc_benign.append(benign_to_adv_miou['overall_accuracy'])
             
             per_cat = np.array(benign_to_adv_miou['per_category_iou'])
-            avg_miou_no0_benign.append(np.mean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
+            avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
 
             gt_to_adv_mious.append(gt_to_adv_miou['mean_iou'])
             acc_gt.append(gt_to_adv_miou['mean_accuracy'])
             oacc_gt.append(gt_to_adv_miou['overall_accuracy'])
             
             per_cat_gt = np.array(gt_to_adv_miou['per_category_iou'])
-            avg_miou_no0_gt.append(np.mean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
+            avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
             
+    # Calculate Final mIoU
+    if final_adv_img_list:
+        final_benign_res, final_gt_res = eval_miou(model, img_list, final_adv_img_list, gt_list, config)
+        
+        benign_to_adv_mious.append(final_benign_res['mean_iou'])
+        acc_benign.append(final_benign_res['mean_accuracy'])
+        oacc_benign.append(final_benign_res['overall_accuracy'])
+        
+        per_cat = np.array(final_benign_res['per_category_iou'])
+        avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
+
+        gt_to_adv_mious.append(final_gt_res['mean_iou'])
+        acc_gt.append(final_gt_res['mean_accuracy'])
+        oacc_gt.append(final_gt_res['overall_accuracy'])
+        
+        per_cat_gt = np.array(final_gt_res['per_category_iou'])
+        avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
+
+    # Extract lists for PointWise-like format (Snapshot steps + Final Average)
+    # Filter snapshots up to max_query to avoid sparse tails
+    valid_queries = [entry for entry in per_query_avg if entry['query'] <= config["max_query"]]
+    
+    l0_list = [entry['avg_l0'] for entry in valid_queries]
+    l0_list.append(np.mean(l0_metrics))
+    
+    ratio_list = [entry['avg_pixel_ratio'] for entry in valid_queries]
+    ratio_list.append(np.mean(ratio_metrics))
+    
+    impact_list = [entry['avg_impact'] for entry in valid_queries]
+    impact_list.append(np.mean(impact_metrics))
+
     final_results = {
         "Attack Method": "SpaEvO",
         "Init mIoU": init_mious['mean_iou'],
@@ -575,9 +627,9 @@ def main(config):
         "Overall Accuracy(benign)": oacc_benign,
         "Accuracy(gt)": acc_gt,
         "Overall Accuracy(gt)": oacc_gt,
-        "L0": np.mean(l0_metrics),
-        "Ratio": np.mean(ratio_metrics),
-        "Impact": np.mean(impact_metrics),
+        "L0": l0_list,
+        "Ratio": ratio_list,
+        "Impact": impact_list,
         "Average mIoU excluding label 0 (benign)": avg_miou_no0_benign,
         "Average mIoU excluding label 0 (gt)": avg_miou_no0_gt,
         "Average Queries": np.mean(query_metrics),

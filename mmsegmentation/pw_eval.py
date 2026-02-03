@@ -144,7 +144,7 @@ def process_single_image(args):
     # 프로세스별 모델 초기화
     model = init_model_for_process(model_configs, config["dataset"], config["model"], config["device"])
     
-    setproctitle.setproctitle(f"({idx+1}/{total_images})_PointWise_Attack_{config['dataset']}_{config['model']}")
+    setproctitle.setproctitle(f"({idx+1}/{total_images})_PointWise_Attack_{config['dataset']}_{config['model']}_{config['success_threshold']}")
 
     img_tensor_bgr = torch.from_numpy(img_bgr.copy()).unsqueeze(0).permute(0, 3, 1, 2).float().to(config["device"])
     gt_tensor = torch.from_numpy(gt.copy()).unsqueeze(0).long().to(config["device"])
@@ -257,7 +257,18 @@ def process_single_image(args):
     os.makedirs(current_img_save_dir, exist_ok=True)
 
     Image.fromarray(img_bgr[:, :, ::-1]).save(os.path.join(current_img_save_dir, "original.png"))
-    Image.fromarray(gt).save(os.path.join(current_img_save_dir, "gt.png"))
+    # GT 세그멘테이션 저장 (Segmentation Visualization)
+    visualize_segmentation(img_bgr, gt,
+                        save_path=os.path.join(current_img_save_dir, "gt.png"),
+                        alpha=1.0, dataset=config["dataset"])
+    
+    # 원본 세그멘테이션 저장 (메인 디렉토리)
+    visualize_segmentation(img_bgr, ori_pred,
+                        save_path=os.path.join(current_img_save_dir, "ori_seg.png"),
+                        alpha=0.5, dataset=config["dataset"])
+    visualize_segmentation(img_bgr, ori_pred,
+                        save_path=os.path.join(current_img_save_dir, "ori_seg_only.png"),
+                        alpha=1.0, dataset=config["dataset"])
 
     print(f"[{idx+1}/{total_images}] {filename}: Completed with {total_nquery} queries")
     
@@ -297,13 +308,12 @@ def process_single_image(args):
             Image.fromarray(adv_img_np[:, :, ::-1]).save(os.path.join(query_img_save_dir, "adv.png"))
             Image.fromarray(delta_img).save(os.path.join(query_img_save_dir, "delta.png"))
 
-            visualize_segmentation(img_bgr, ori_pred,
-                                save_path=os.path.join(query_img_save_dir, "ori_seg.png"),
-                                alpha=0.5, dataset=config["dataset"])
-
             visualize_segmentation(adv_img_np, adv_pred,
                                 save_path=os.path.join(query_img_save_dir, "adv_seg.png"),
                                 alpha=0.5, dataset=config["dataset"])
+            visualize_segmentation(adv_img_np, adv_pred,
+                                save_path=os.path.join(query_img_save_dir, "adv_seg_only.png"),
+                                alpha=1.0, dataset=config["dataset"])
 
         if i == 0:
             success_ratio = 0.0
@@ -375,6 +385,11 @@ def process_single_image(args):
             os.makedirs(save_q_dir, exist_ok=True)
             # snapshot_np is (H, W, C) in BGR, convert to RGB for PIL
             Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
+            
+            # Delta 이미지 저장
+            delta_img = np.abs(img_bgr.astype(np.int16) - snapshot_np.astype(np.int16)).astype(np.uint8)
+            Image.fromarray(delta_img).save(os.path.join(save_q_dir, "delta.png"))
+            
             visualize_segmentation(snapshot_np, snapshot_pred, 
                 save_path=os.path.join(save_q_dir, "adv_seg.png"),
                 alpha=0.5, dataset=config["dataset"])
@@ -420,6 +435,11 @@ def process_single_image(args):
             save_q_dir = os.path.join(current_img_save_dir, f"{final_query}query")
             os.makedirs(save_q_dir, exist_ok=True)
             Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
+            
+            # Delta 이미지 저장
+            delta_img = np.abs(img_bgr.astype(np.int16) - snapshot_np.astype(np.int16)).astype(np.uint8)
+            Image.fromarray(delta_img).save(os.path.join(save_q_dir, "delta.png"))
+            
             visualize_segmentation(snapshot_np, snapshot_pred, 
                 save_path=os.path.join(save_q_dir, "adv_seg.png"),
                 alpha=0.5, dataset=config["dataset"])
@@ -472,7 +492,8 @@ def process_single_image(args):
         'impact_metrics': impact_metrics,
         'distance_history': D,
         'success_ratio': success_ratio,
-        'query_history': query_history
+        'query_history': query_history,
+        'snapshots': snapshots
     }
 
 
@@ -495,6 +516,10 @@ def main(config):
             "pspnet": {
                 "config": 'configs/pspnet/pspnet_r101-d8_4xb2-80k_cityscapes-512x1024.py',
                 "checkpoint": '../ckpt/pspnet_r101-d8_512x1024_80k_cityscapes_20200606_112211-e1e1100f.pth'
+            },
+            "setr": {
+                "config": 'configs/setr/setr_vit-l_pup_8xb1-80k_cityscapes-768x768.py',
+                "checkpoint": '../ckpt/setr_pup_vit-large_8x1_768x768_80k_cityscapes_20211122_155115-f6f37b8f.pth'
             }
         },
         "ade20k": {
@@ -513,6 +538,10 @@ def main(config):
             "pspnet": {
                 "config": 'configs/pspnet/pspnet_r101-d8_4xb4-160k_ade20k-512x512.py',
                 "checkpoint": '../ckpt/pspnet_r101-d8_512x512_160k_ade20k_20200615_100650-967c316f.pth'
+            },
+            "setr": {
+                "config": 'configs/setr/setr_vit-l_pup_8xb1-80k_ade20k-768x768.py',
+                "checkpoint": '../ckpt/setr_pup_vit-large_8x1_768x768_80k_ade20k_20211122_155115-f6f37b8f.pth'
             }
         },
         "VOC2012": {
@@ -581,9 +610,17 @@ def main(config):
     gt_list = []
     filename_list = []
     adv_img_lists = [[] for _ in range(levels)]
+    final_adv_img_list = []
+    
     all_l0_metrics = [[] for _ in range(levels)]
+    final_l0_list = []
+    
     all_ratio_metrics = [[] for _ in range(levels)]
+    final_ratio_list = []
+    
     all_impact_metrics = [[] for _ in range(levels)]
+    final_impact_list = []
+    
     all_queries = []
     all_success_ratios = []
     all_query_histories = []
@@ -605,6 +642,18 @@ def main(config):
                 all_l0_metrics[i].append(result['l0_metrics'][i])
                 all_ratio_metrics[i].append(result['ratio_metrics'][i])
                 all_impact_metrics[i].append(result['impact_metrics'][i])
+
+        # Collect final results
+        if 'snapshots' in result and 'final' in result['snapshots']:
+            final_img = result['snapshots']['final']
+            final_adv_img_list.append(np.transpose(final_img, (1, 2, 0)).astype(np.uint8))
+            
+            # Get final metrics from query_history
+            if result['query_history']:
+                last_hist = result['query_history'][-1]
+                final_l0_list.append(last_hist['l0'])
+                final_ratio_list.append(last_hist['pixel_ratio'])
+                final_impact_list.append(last_hist['impact'])
 
     # 쿼리별 평균 메트릭 계산
     query_step_averages = {}
@@ -659,18 +708,44 @@ def main(config):
             oacc_benign.append(benign_to_adv_miou['overall_accuracy'])
             
             per_cat = np.array(benign_to_adv_miou['per_category_iou'])
-            avg_miou_no0_benign.append(np.mean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
+            per_cat = np.array(benign_to_adv_miou['per_category_iou'])
+            avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
 
             gt_to_adv_mious.append(gt_to_adv_miou['mean_iou'])
             acc_gt.append(gt_to_adv_miou['mean_accuracy'])
             oacc_gt.append(gt_to_adv_miou['overall_accuracy'])
             
             per_cat_gt = np.array(gt_to_adv_miou['per_category_iou'])
-            avg_miou_no0_gt.append(np.mean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
+            avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
             
         mean_l0.append(np.mean(all_l0_metrics[i]).item() if all_l0_metrics[i] else 0)
         mean_ratio.append(np.mean(all_ratio_metrics[i]).item() if all_ratio_metrics[i] else 0)
         mean_impact.append(np.mean(all_impact_metrics[i]).item() if all_impact_metrics[i] else 0)
+            
+    # Process Final Results
+    if final_adv_img_list:
+        final_benign_res, final_gt_res = eval_miou(model, img_list, final_adv_img_list, gt_list, config)
+        
+        benign_to_adv_mious.append(final_benign_res['mean_iou'])
+        acc_benign.append(final_benign_res['mean_accuracy'])
+        oacc_benign.append(final_benign_res['overall_accuracy'])
+        
+        per_cat = np.array(final_benign_res['per_category_iou'])
+        avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
+
+        gt_to_adv_mious.append(final_gt_res['mean_iou'])
+        acc_gt.append(final_gt_res['mean_accuracy'])
+        oacc_gt.append(final_gt_res['overall_accuracy'])
+        
+        per_cat_gt = np.array(final_gt_res['per_category_iou'])
+        avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
+
+    # Append final metrics averages
+    # Append final metrics averages
+    if final_l0_list:
+        mean_l0.append(np.mean(final_l0_list))
+        mean_ratio.append(np.mean(final_ratio_list))
+        mean_impact.append(np.mean(final_impact_list))
 
     final_results = {
         "Attack Method": "PointWise",
