@@ -136,5 +136,3 @@ ov-seg/output/inference/sem_seg_evaluation.pth
 SED/ckpt/*
 **/output/
 wandb/
-
-mmsegmentation/configs_attack
