@@ -307,7 +307,7 @@ class PointWiseAttack:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
-                if nquery > max_query:
+                if nquery >= max_query:
                     terminate = True
                     break
             else:
@@ -315,7 +315,7 @@ class PointWiseAttack:
                 terminate = True
 
         # Phase 2: Binary search refinement
-        if nquery > max_query:
+        if nquery >= max_query:
             terminate = True
         else:
             terminate = False
@@ -374,7 +374,7 @@ class PointWiseAttack:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
-                if nquery > max_query:
+                if nquery >= max_query:
                     terminate = True
                     break
 
@@ -481,14 +481,14 @@ class PointWiseAttack:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
-                if nquery > max_query:
+                if nquery >= max_query:
                     terminate = True
                     break
             else:
                 terminate = True
 
         # Phase 2: Refinement with binary search
-        if nquery > max_query:
+        if nquery >= max_query:
             terminate = True
         else:
             terminate = False
@@ -551,7 +551,7 @@ class PointWiseAttack:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
-                if nquery > max_query:
+                if nquery >= max_query:
                     terminate = True
                     break
 
@@ -615,7 +615,8 @@ class PointWiseAttack:
         
         # Save initial state (query=0)
         snapshots[0] = x.copy().reshape(shape)
-
+        
+        last_success_query = None
         terminate = False
 
         # Phase 1: Greedy group restoration with scheduling
@@ -647,6 +648,8 @@ class PointWiseAttack:
                     end_qry = nquery
                     D[start_qry:end_qry] = d
                     d = l0_distance(oimg, x.reshape(shape))
+                    if nquery <= max_query:
+                        last_success_query = nquery
                     
                     if self.verbose and nquery % 200 == 0:
                         print(f'nqry = {nquery}; npix = {npix}; L0 = {d}; changed_ratio = {changed_ratio:.4f}')
@@ -658,7 +661,7 @@ class PointWiseAttack:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
-                if nquery > max_query:
+                if nquery >= max_query:
                     terminate = True
                     break
             else:
@@ -669,7 +672,7 @@ class PointWiseAttack:
                 npix //= 2
 
         # Phase 2: Refinement
-        if nquery > max_query:
+        if nquery >= max_query:
             terminate = True
         else:
             terminate = False
@@ -725,6 +728,10 @@ class PointWiseAttack:
                         
                         if self.verbose and nquery % 200 == 0:
                             print(f'nquery = {nquery}; Refinement -> L0 = {d}')
+                            
+                        # Refinement binary search에서 찾은 값은 성공한 값이므로 업데이트
+                        if nquery <= max_query:
+                            last_success_query = nquery
                     else:
                         x[idx] = old_value
 
@@ -733,7 +740,7 @@ class PointWiseAttack:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
-                if nquery > max_query:
+                if nquery >= max_query:
                     terminate = True
                     break
 
@@ -742,6 +749,11 @@ class PointWiseAttack:
 
         d = l0_distance(oimg, x.reshape(shape))
         D[end_qry:nquery] = d
+        
+        # Save final snapshot
+        snapshots['final'] = x.copy().reshape(shape)
+        snapshots['final_query'] = nquery
+        snapshots['last_success_query'] = last_success_query
 
         return x, nquery, D[:nquery], snapshots
 

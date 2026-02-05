@@ -139,7 +139,7 @@ def gen_starting_point_seg(attack, oimg, original_pred_labels, seed=None, init_m
 
 def process_single_image(args):
     """단일 이미지를 처리하는 함수"""
-    (img_bgr, filename, gt, model_configs, config, base_dir, idx, total_images, save_steps) = args
+    (img_bgr, filename, gt, model_configs, config, base_dir, idx, total_images) = args
     
     # 프로세스별 모델 초기화
     model = init_model_for_process(model_configs, config["dataset"], config["model"], config["device"])
@@ -173,17 +173,6 @@ def process_single_image(args):
         dataset_name=config["dataset"]
     )
 
-    levels = len(save_steps)
-    adv_img_bgr_list = []
-    adv_query_list = []
-    total_nquery = init_nqry
-
-    adv_img_bgr_list = []
-    adv_query_list = []
-    total_nquery = init_nqry
-
-    # 0번(원본)은 나중에 채움
-
     # PointWise Attack 실행
     print(f"[{idx+1}/{total_images}] {filename}: Running PointWise attack (mode={config['attack_mode']})...")
     
@@ -211,46 +200,10 @@ def process_single_image(args):
     else:
         raise ValueError(f"Unknown attack mode: {config['attack_mode']}")
 
-    total_nquery += nquery
+    total_nquery = init_nqry + nquery
     
     # Reshape result to tensor
     adv_img_bgr = torch.from_numpy(x.reshape(img_tensor_bgr.squeeze(0).shape)).unsqueeze(0).float().cuda()
-    
-    # Save results by steps
-    for step in save_steps:
-        target_q = step - init_nqry
-        img_to_add = None
-        current_query = step
-        
-        if step == 0:
-            img_to_add = img_tensor_bgr
-        else:
-             if target_q < 0:
-                 # Init 단계
-                 img_to_add = timg.unsqueeze(0) if timg.dim()==3 else timg
-                 # Check dim
-                 if img_to_add.dim() == 3: img_to_add = img_to_add.unsqueeze(0)
-             else:
-                 if target_q > nquery:
-                     # Finished early
-                     img_to_add = adv_img_bgr
-                     current_query = total_nquery
-                 else:
-                     key = (target_q // snapshot_interval) * snapshot_interval
-                     if key in snapshots:
-                         snap_np = snapshots[key]
-                         img_to_add = torch.from_numpy(snap_np).unsqueeze(0).float().to(config["device"])
-                     else:
-                         img_to_add = adv_img_bgr 
-                         current_query = total_nquery
-
-        adv_img_bgr_list.append(img_to_add)
-        adv_query_list.append(current_query)
-
-    # Ensure final result is included if not covered
-    if total_nquery > adv_query_list[-1]:
-         adv_img_bgr_list.append(adv_img_bgr)
-         adv_query_list.append(total_nquery)
 
     # 결과 저장
     current_img_save_dir = os.path.join(base_dir, os.path.splitext(os.path.basename(filename))[0])
@@ -270,75 +223,31 @@ def process_single_image(args):
                         save_path=os.path.join(current_img_save_dir, "ori_seg_only.png"),
                         alpha=1.0, dataset=config["dataset"])
 
-    print(f"[{idx+1}/{total_images}] {filename}: Completed with {total_nquery} queries")
+    # Calculate final metrics
+    adv_img_np = adv_img_bgr.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
     
-    # 메트릭 계산
-    l0_metrics = []
-    ratio_metrics = []
-    impact_metrics = []
+    l0_norm = calculate_l0_norm(img_bgr, adv_img_np)
+    pixel_ratio = calculate_pixel_ratio(img_bgr, adv_img_np)
     
-    for i, adv_img in enumerate(adv_img_bgr_list):
-        query_val = adv_query_list[i]
-        adv_img_np = adv_img.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
-
-        if i == 0:
-            l0_norm = 0
-            pixel_ratio = 0.0
-            impact = 0.0
-        else:
-            query_img_save_dir = os.path.join(current_img_save_dir, f"{query_val}query")
-            os.makedirs(query_img_save_dir, exist_ok=True)
-
-            adv_result = inference_model(model, adv_img_np)
-            adv_pred = adv_result.pred_sem_seg.data.squeeze().cpu().numpy()
-            delta_img = np.abs(img_bgr.astype(np.int16) - adv_img_np.astype(np.int16)).astype(np.uint8)
-
-            l0_norm = calculate_l0_norm(img_bgr, adv_img_np)
-            pixel_ratio = calculate_pixel_ratio(img_bgr, adv_img_np)
-            impact = calculate_impact(img_bgr, adv_img_np, ori_pred, adv_pred)
-            
-            # 최종 success_ratio 계산 (배경/ignore 제외, 원본 예측 대비 변경된 픽셀 비율)
-            ignore_index = 255 if config["dataset"].lower() == "cityscapes" else 0
-            foreground_mask = ori_pred != ignore_index
-            if foreground_mask.sum() > 0:
-                success_ratio = ((adv_pred != ori_pred) & foreground_mask).sum() / foreground_mask.sum()
-            else:
-                success_ratio = 0.0
-
-            Image.fromarray(adv_img_np[:, :, ::-1]).save(os.path.join(query_img_save_dir, "adv.png"))
-            Image.fromarray(delta_img).save(os.path.join(query_img_save_dir, "delta.png"))
-
-            visualize_segmentation(adv_img_np, adv_pred,
-                                save_path=os.path.join(query_img_save_dir, "adv_seg.png"),
-                                alpha=0.5, dataset=config["dataset"])
-            visualize_segmentation(adv_img_np, adv_pred,
-                                save_path=os.path.join(query_img_save_dir, "adv_seg_only.png"),
-                                alpha=1.0, dataset=config["dataset"])
-
-        if i == 0:
-            success_ratio = 0.0
-        print(f"  L0 norm: {l0_norm}, Pixel ratio: {pixel_ratio:.4f}, Impact: {impact:.4f}, Success Ratio: {success_ratio:.4f}")
-
-        l0_metrics.append(l0_norm)
-        ratio_metrics.append(pixel_ratio)
-        impact_metrics.append(impact)
+    adv_result = inference_model(model, adv_img_np)
+    adv_pred = adv_result.pred_sem_seg.data.squeeze().cpu().numpy()
+    impact = calculate_impact(img_bgr, adv_img_np, ori_pred, adv_pred)
+    
+    # 최종 success_ratio 계산 (배경/ignore 제외, 원본 예측 대비 변경된 픽셀 비율)
+    ignore_index = 255 if config["dataset"].lower() == "cityscapes" else 0
+    foreground_mask = ori_pred != ignore_index
+    if foreground_mask.sum() > 0:
+        success_ratio = ((adv_pred != ori_pred) & foreground_mask).sum() / foreground_mask.sum()
+    else:
+        success_ratio = 0.0
+    
+    print(f"[{idx+1}/{total_images}] {filename}: Completed. L0={l0_norm}, Ratio={pixel_ratio:.4f}, Impact={impact:.4f}, Success Ratio={success_ratio:.4f}")
 
     # 각 이미지별 결과를 JSON으로 저장
     # foreground 픽셀 수 및 공격 실패 픽셀 수 계산
-    ignore_index = 255 if config["dataset"].lower() == "cityscapes" else 0
-    foreground_mask = ori_pred != ignore_index
     foreground_pixels = int(foreground_mask.sum())
-    
-    # 마지막 adversarial 이미지의 예측 사용
-    if len(adv_img_bgr_list) > 1:
-        final_adv_np = adv_img_bgr_list[-1].squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
-        final_adv_result = inference_model(model, final_adv_np)
-        final_adv_pred = final_adv_result.pred_sem_seg.data.squeeze().cpu().numpy()
-        unchanged_pixels = int(((final_adv_pred == ori_pred) & foreground_mask).sum())
-        changed_pixels = int(((final_adv_pred != ori_pred) & foreground_mask).sum())
-    else:
-        unchanged_pixels = foreground_pixels
-        changed_pixels = 0
+    unsuccess_pixel = int(((adv_pred == ori_pred) & foreground_mask).sum())
+    success_pixel = int(((adv_pred != ori_pred) & foreground_mask).sum())
     
     # 쿼리별 결과 생성 (스냅샷 활용)
     query_history = []
@@ -409,17 +318,15 @@ def process_single_image(args):
 
     # Final snapshot 처리
     if 'final' in snapshots:
-        final_query = snapshots.get('final_query', total_nquery)
+        # final_query를 total_nquery로 설정하여 일관성 유지
+        final_query = total_nquery
         # 이미 정수형 키에 포함되어 있는지 확인 (중복 방지)
         if final_query not in snapshot_queries:
             snapshot_img = snapshots['final']
             snapshot_np = np.transpose(snapshot_img, (1, 2, 0)).astype(np.uint8)
             
             # 메트릭 계산 - D의 마지막 값 사용
-            l0_at_q = int(D_numpy[final_query-1]) if final_query > 0 and final_query-1 < len(D_numpy) else int(D_numpy[-1] if len(D_numpy) > 0 else 0)
-            if final_query == 0: # 혹시 0이면 직접 계산
-                 diff = np.abs(snapshot_np.astype(int) - img_bgr.astype(int))
-                 l0_at_q = int(np.sum(np.sum(diff, axis=2) > 0))
+            l0_at_q = int(D_numpy[-1]) if len(D_numpy) > 0 else 0
 
             pixel_ratio_at_q = calculate_pixel_ratio(img_bgr, snapshot_np)
             
@@ -431,7 +338,7 @@ def process_single_image(args):
             impact_at_q = calculate_impact(img_bgr, snapshot_np, ori_pred, snapshot_pred)
             success_ratio_at_q = success_pixel_at_q / foreground_pixels if foreground_pixels > 0 else 0.0
             
-            # 이미지 저장 (Final은 무조건 저장)
+            # 이미지 저장 (Final은 무조건 저장) - total_nquery 사용
             save_q_dir = os.path.join(current_img_save_dir, f"{final_query}query")
             os.makedirs(save_q_dir, exist_ok=True)
             Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
@@ -457,19 +364,32 @@ def process_single_image(args):
                 'unsuccess_pixel': unsuccess_pixel_at_q
             })
     
+    # max_query 이하에서 공격 성공한 가장 큰 쿼리 찾기
+    max_query_limit = config['max_query']
+    attack_success_query = None
+    attack_success = False
+    
+    # 1. Snapshots에서 정확한 값 확인 (pointwise_attack.py 수정됨)
+    if 'last_success_query' in snapshots and snapshots['last_success_query'] is not None:
+        last_succ = snapshots['last_success_query']
+        if last_succ <= max_query_limit:
+            attack_success = True
+            attack_success_query = last_succ + init_nqry
     image_result = {
         'filename': filename,
         'total_query': total_nquery,
-        'l0': l0_metrics[-1] if l0_metrics else 0,
-        'pixel_ratio': ratio_metrics[-1] if ratio_metrics else 0.0,
-        'impact': impact_metrics[-1] if impact_metrics else 0.0,
+        'l0': int(l0_norm),
+        'pixel_ratio': float(pixel_ratio),
+        'impact': float(impact),
         'success_ratio': float(success_ratio),
         'foreground_pixels': foreground_pixels,
-        'success_pixel': changed_pixels,
-        'unsuccess_pixel': unchanged_pixels,
+        'success_pixel': success_pixel,
+        'unsuccess_pixel': unsuccess_pixel,
         'attack_mode': config['attack_mode'],
         'max_query': config['max_query'],
         'success_threshold': config['success_threshold'],
+        'attack_success': attack_success,
+        'attack_success_query': attack_success_query,
         'query_history': query_history
     }
     with open(os.path.join(current_img_save_dir, 'result.json'), 'w') as f:
@@ -484,14 +404,15 @@ def process_single_image(args):
         'img_bgr': img_bgr,
         'gt': gt,
         'filename': filename,
-        'adv_img_bgr_list': adv_img_bgr_list,
-        'adv_query_list': adv_query_list,
-        'total_query': total_nquery,
-        'l0_metrics': l0_metrics,
-        'ratio_metrics': ratio_metrics,
-        'impact_metrics': impact_metrics,
+        'adv_img': adv_img_np,
+        'l0': l0_norm,
+        'ratio': pixel_ratio,
+        'impact': impact,
+        'queries': total_nquery,
         'distance_history': D,
         'success_ratio': success_ratio,
+        'attack_success': attack_success,
+        'attack_success_query': attack_success_query,
         'query_history': query_history,
         'snapshots': snapshots
     }
@@ -590,14 +511,10 @@ def main(config):
     base_dir = os.path.join(config["base_dir"], current_time)
     os.makedirs(base_dir, exist_ok=True)
 
-    snapshot_interval = config.get("snapshot_interval", 200)
-    save_steps = list(range(0, config["max_query"] + 1, snapshot_interval))
-    levels = len(save_steps)
-
     # 처리 데이터 준비
     process_args = []
     for idx, (img_bgr, filename, gt) in enumerate(zip(dataset.images, dataset.filenames, dataset.gt_images)):
-        process_args.append((img_bgr, filename, gt, model_cfg, config, base_dir, idx, len(dataset.images), save_steps))
+        process_args.append((img_bgr, filename, gt, model_cfg, config, base_dir, idx, len(dataset.images)))
 
     # 모델 초기화 (메트릭 계산용)
     model = init_model_for_process(model_cfg, config["dataset"], config["model"], device)
@@ -609,21 +526,21 @@ def main(config):
     img_list = []
     gt_list = []
     filename_list = []
+    
+    snapshot_interval = config.get("snapshot_interval", 200)
+    levels = config["max_query"] // snapshot_interval + 1
     adv_img_lists = [[] for _ in range(levels)]
     final_adv_img_list = []
-    
-    all_l0_metrics = [[] for _ in range(levels)]
-    final_l0_list = []
-    
-    all_ratio_metrics = [[] for _ in range(levels)]
-    final_ratio_list = []
-    
-    all_impact_metrics = [[] for _ in range(levels)]
-    final_impact_list = []
-    
-    all_queries = []
-    all_success_ratios = []
+    l0_metrics = []
+    ratio_metrics = []
+    impact_metrics = []
+    query_metrics = []
+    success_ratio_metrics = []
     all_query_histories = []
+    
+    # 공격 성공 쿼리 추적
+    attack_success_list = []  # 각 이미지별 공격 성공 여부
+    attack_success_queries = []  # 공격 성공한 이미지들의 성공 쿼리
 
     for args in tqdm(process_args, desc="PointWise Attack"):
         result = process_single_image(args)
@@ -632,34 +549,58 @@ def main(config):
         img_list.append(result['img_bgr'])
         gt_list.append(result['gt'])
         filename_list.append(result['filename'])
-        all_queries.append(result['total_query'])
-        all_success_ratios.append(result['success_ratio'])
-        all_query_histories.append(result['query_history'])
-
-        for i, adv_img in enumerate(result['adv_img_bgr_list']):
-            if i < levels:
-                adv_img_lists[i].append(adv_img.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8))
-                all_l0_metrics[i].append(result['l0_metrics'][i])
-                all_ratio_metrics[i].append(result['ratio_metrics'][i])
-                all_impact_metrics[i].append(result['impact_metrics'][i])
-
-        # Collect final results
-        if 'snapshots' in result and 'final' in result['snapshots']:
-            final_img = result['snapshots']['final']
-            final_adv_img_list.append(np.transpose(final_img, (1, 2, 0)).astype(np.uint8))
+        
+        snapshots = result['snapshots']
+        for i in range(levels):
+            q = i * snapshot_interval
+            # Use snapshot if available, else final (attack ended), else last available
+            target_img = None
+            if q in snapshots:
+                target_img = snapshots[q]
+            elif 'final' in snapshots:
+                target_img = snapshots['final']
+            else:
+                # Fallback: use the last available snapshot or adv_img
+                available_keys = [k for k in snapshots.keys() if isinstance(k, int)]
+                if available_keys:
+                    target_img = snapshots[max(available_keys)]
+                else:
+                    target_img = result['adv_img'].transpose(2, 0, 1)  # (H,W,C) -> (C,H,W)
             
-            # Get final metrics from query_history
-            if result['query_history']:
-                last_hist = result['query_history'][-1]
-                final_l0_list.append(last_hist['l0'])
-                final_ratio_list.append(last_hist['pixel_ratio'])
-                final_impact_list.append(last_hist['impact'])
+            adv_img_lists[i].append(np.transpose(target_img, (1, 2, 0)).astype(np.uint8))
+        
+        # Collect final image for final evaluation
+        if 'final' in snapshots:
+            final_img = snapshots['final']
+        else:
+            # Fallback: use last snapshot or adv_img
+            available_keys = [k for k in snapshots.keys() if isinstance(k, int)]
+            if available_keys:
+                final_img = snapshots[max(available_keys)]
+            else:
+                final_img = result['adv_img'].transpose(2, 0, 1)  # (H,W,C) -> (C,H,W)
+        final_adv_img_list.append(np.transpose(final_img, (1, 2, 0)).astype(np.uint8))
+        
+        l0_metrics.append(result['l0'])
+        ratio_metrics.append(result['ratio'])
+        impact_metrics.append(result['impact'])
+        query_metrics.append(result['queries'])
+        success_ratio_metrics.append(result['success_ratio'])
+        all_query_histories.append(result['query_history'])
+        
+        # 공격 성공한 이미지의 성공 쿼리 수집 (max_query 이하)
+        attack_success_list.append(result['attack_success'])
+        if result['attack_success'] and result['attack_success_query'] is not None:
+            attack_success_queries.append(result['attack_success_query'])
 
-    # 쿼리별 평균 메트릭 계산
+    # 쿼리별 평균 메트릭 계산 (max_query 이하만)
+    max_query_limit = config['max_query']
     query_step_averages = {}
     for qh in all_query_histories:
         for entry in qh:
             q = entry['query']
+            if q > max_query_limit:  # max_query 초과 쿼리 제외
+                continue
             if q not in query_step_averages:
                 query_step_averages[q] = {'l0': [], 'pixel_ratio': [], 'impact': [], 
                                           'success_ratio': [], 'success_pixel': [], 'unsuccess_pixel': []}
@@ -694,10 +635,6 @@ def main(config):
     oacc_gt = []
     avg_miou_no0_benign = []
     avg_miou_no0_gt = []
-
-    mean_l0 = []
-    mean_ratio = []
-    mean_impact = []
     
     for i in range(levels):
         if adv_img_lists[i]:
@@ -708,7 +645,6 @@ def main(config):
             oacc_benign.append(benign_to_adv_miou['overall_accuracy'])
             
             per_cat = np.array(benign_to_adv_miou['per_category_iou'])
-            per_cat = np.array(benign_to_adv_miou['per_category_iou'])
             avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
 
             gt_to_adv_mious.append(gt_to_adv_miou['mean_iou'])
@@ -717,10 +653,6 @@ def main(config):
             
             per_cat_gt = np.array(gt_to_adv_miou['per_category_iou'])
             avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
-            
-        mean_l0.append(np.mean(all_l0_metrics[i]).item() if all_l0_metrics[i] else 0)
-        mean_ratio.append(np.mean(all_ratio_metrics[i]).item() if all_ratio_metrics[i] else 0)
-        mean_impact.append(np.mean(all_impact_metrics[i]).item() if all_impact_metrics[i] else 0)
             
     # Process Final Results
     if final_adv_img_list:
@@ -740,13 +672,24 @@ def main(config):
         per_cat_gt = np.array(final_gt_res['per_category_iou'])
         avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
 
-    # Append final metrics averages
-    # Append final metrics averages
-    if final_l0_list:
-        mean_l0.append(np.mean(final_l0_list))
-        mean_ratio.append(np.mean(final_ratio_list))
-        mean_impact.append(np.mean(final_impact_list))
+    # Extract lists for spaevo-like format (Snapshot steps + Final Average)
+    # Filter snapshots up to max_query to avoid sparse tails
+    valid_queries = [entry for entry in per_query_avg if entry['query'] <= config["max_query"]]
+    
+    l0_list = [entry['avg_l0'] for entry in valid_queries]
+    l0_list.append(np.mean(l0_metrics))
+    
+    ratio_list = [entry['avg_pixel_ratio'] for entry in valid_queries]
+    ratio_list.append(np.mean(ratio_metrics))
+    
+    impact_list = [entry['avg_impact'] for entry in valid_queries]
+    impact_list.append(np.mean(impact_metrics))
 
+    # 공격 성공 통계 계산
+    attack_success_count = sum(attack_success_list)
+    attack_success_rate = attack_success_count / len(attack_success_list) if len(attack_success_list) > 0 else 0.0
+    avg_attack_success_query = np.mean(attack_success_queries) if len(attack_success_queries) > 0 else None
+    
     final_results = {
         "Attack Method": "PointWise",
         "Attack Mode": config["attack_mode"],
@@ -757,16 +700,20 @@ def main(config):
         "Overall Accuracy(benign)": oacc_benign,
         "Accuracy(gt)": acc_gt,
         "Overall Accuracy(gt)": oacc_gt,
-        "L0": mean_l0,
-        "Ratio": mean_ratio,
-        "Impact": mean_impact,
+        "L0": l0_list,
+        "Ratio": ratio_list,
+        "Impact": impact_list,
         "Average mIoU excluding label 0 (benign)": avg_miou_no0_benign,
         "Average mIoU excluding label 0 (gt)": avg_miou_no0_gt,
-        "Average Queries": np.mean(all_queries).item(),
+        "Average Queries": np.mean(query_metrics),
         "Max Query Limit": config["max_query"],
         "NPix": config.get("npix", 196),
-        "Success Ratios (per image)": all_success_ratios,
-        "Mean Success Ratio": np.mean(all_success_ratios).item(),
+        "Success Ratios (per image)": success_ratio_metrics,
+        "Mean Success Ratio": np.mean(success_ratio_metrics),
+        "Attack Success Count": attack_success_count,
+        "Attack Success Rate": attack_success_rate,
+        "Attack Success Queries (per image)": attack_success_queries,
+        "Average Attack Success Query": float(avg_attack_success_query) if avg_attack_success_query is not None else None,
         "Per Query Averages": per_query_avg
     }
 
@@ -786,7 +733,7 @@ if __name__ == '__main__':
     parser.add_argument("--config", type=str, required=True, help="Path to the config file.")
     parser.add_argument('--device', type=str, default='cuda', help='Device to use.')
     parser.add_argument('--max_query', type=int, default=1000, help='Maximum queries for attack.')
-    parser.add_argument('--num_images', type=int, default=10, help='Number of images to evaluate.')
+    parser.add_argument('--num_images', type=int, default=100, help='Number of images to evaluate.')
     parser.add_argument('--attack_mode', type=str, default='scheduling', 
                         choices=['single', 'multiple', 'scheduling'],
                         help='Attack mode: single, multiple, or scheduling.')

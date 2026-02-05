@@ -274,6 +274,7 @@ class SpaEvoAttack():
         # Snapshot storage
         snapshots = {}
         next_snapshot = snapshot_interval
+        last_success_query = None
         
         # 1. population init
         # uni_rand now selects a SPARSE subset of timg to start with
@@ -300,6 +301,7 @@ class SpaEvoAttack():
                 print(f"Init: Best L0={current_best_l0}, Adv={is_adv}, Ratio={ratio:.4f}")
 
             # 3. evolution
+            prev_best_fitness = fitness[best_idx]
             while nqry < max_query:
                 # a. Crossover (recombine)
                 idxs = [idx for idx in range(self.pop_size) if idx != best_idx]
@@ -320,6 +322,12 @@ class SpaEvoAttack():
                 rank = np.argsort(fitness)
                 best_idx = rank[0].item()
                 worst_idx = rank[-1].item()
+
+                if nqry <= max_query:
+                    # If improved or first time
+                    if last_success_query is None or fitness[best_idx] < prev_best_fitness:
+                        last_success_query = nqry
+                        prev_best_fitness = fitness[best_idx]
 
                 # ====== record ======
                 best_mask = pop[best_idx]
@@ -346,6 +354,7 @@ class SpaEvoAttack():
             # Save final snapshot
             snapshots['final'] = adv.cpu().numpy()
             snapshots['final_query'] = nqry
+            snapshots['last_success_query'] = last_success_query
         else:
             adv = timg
             nqry = 1
@@ -353,6 +362,7 @@ class SpaEvoAttack():
             snapshots[0] = adv.cpu().numpy() # Init if logic allows
             snapshots['final'] = adv.cpu().numpy()
             snapshots['final_query'] = nqry
+            snapshots['last_success_query'] = nqry if fitness[0] < 1e8 else None
             
         # Re-verify and final check (optional)
         # Ensure we return a valid adversarial example if possible

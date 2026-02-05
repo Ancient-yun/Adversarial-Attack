@@ -146,10 +146,17 @@ def process_single_image(args):
     ori_pred = ori_result.pred_sem_seg.data.squeeze().cpu().numpy()
     original_pred_labels = ori_result.pred_sem_seg.data.squeeze().cuda()
 
+    # n_pix 자동 계산 (0이거나 지정되지 않은 경우 0.004 × H × W)
+    H, W = img_bgr.shape[:2]
+    n_pix = config.get("n_pix", 0)
+    if n_pix == 0 or n_pix is None:
+        n_pix = int(0.004 * H * W)
+        print(f"[Auto n_pix] Image size: {H}×{W}, n_pix = 0.004 × {H} × {W} = {n_pix}")
+    
     # Initialize SpaEvO Attack
     attack = SpaEvoAttack(
         model=model,
-        n_pix=config.get("n_pix", 196),
+        n_pix=n_pix,
         pop_size=config.get("pop_size", 10),
         cr=config.get("cr", 0.9),
         mu=config.get("mu", 0.01),
@@ -229,10 +236,6 @@ def process_single_image(args):
     foreground_pixels = int(foreground_mask.sum())
     unsuccess_pixel = int(((adv_pred == ori_pred) & foreground_mask).sum())
     success_pixel = int(((adv_pred != ori_pred) & foreground_mask).sum())
-    
-    # 쿼리별 결과 생성 (스냅샷 활용)
-    query_history = []
-    D_numpy = D.cpu().numpy() if isinstance(D, torch.Tensor) else D
     
     # 쿼리별 결과 생성 (스냅샷 활용)
     query_history = []
@@ -345,6 +348,17 @@ def process_single_image(args):
                 'unsuccess_pixel': unsuccess_pixel_at_q
             })
     
+    # max_query 이하에서 공격 성공한 가장 큰 쿼리 찾기
+    max_query_limit = config['max_query']
+    attack_success_query = None
+    attack_success = False
+    
+    # 1. Snapshots에서 정확한 값 확인 (spaevo_attack.py 수정됨)
+    if 'last_success_query' in snapshots and snapshots['last_success_query'] is not None:
+        last_succ = snapshots['last_success_query']
+        if last_succ <= max_query_limit and last_succ > 0:
+            attack_success = True
+            attack_success_query = last_succ + init_nqry
     image_result = {
         'filename': filename,
         'total_query': total_query,
@@ -359,6 +373,8 @@ def process_single_image(args):
         'pop_size': config.get('pop_size', 10),
         'n_pix': config.get('n_pix', 196),
         'success_threshold': config['success_threshold'],
+        'attack_success': attack_success,
+        'attack_success_query': attack_success_query,
         'query_history': query_history
     }
     with open(os.path.join(current_img_save_dir, 'result.json'), 'w') as f:
@@ -378,6 +394,8 @@ def process_single_image(args):
         'queries': total_query,
         'distance_history': D,
         'success_ratio': success_ratio,
+        'attack_success': attack_success,
+        'attack_success_query': attack_success_query,
         'query_history': query_history,
         'snapshots': snapshots
     }
@@ -487,6 +505,10 @@ def main(config):
     query_metrics = []
     success_ratio_metrics = []
     all_query_histories = []
+    
+    # 공격 성공 쿼리 추적
+    attack_success_list = []  # 각 이미지별 공격 성공 여부
+    attack_success_queries = []  # 공격 성공한 이미지들의 성공 쿼리
 
     for args in tqdm(process_args, desc="SpaEvO Attack"):
         result = process_single_image(args)
@@ -527,12 +549,20 @@ def main(config):
         query_metrics.append(result['queries'])
         success_ratio_metrics.append(result['success_ratio'])
         all_query_histories.append(result['query_history'])
+        
+        # 공격 성공한 이미지의 성공 쿼리 수집 (max_query 이하)
+        attack_success_list.append(result['attack_success'])
+        if result['attack_success'] and result['attack_success_query'] is not None:
+            attack_success_queries.append(result['attack_success_query'])
 
-    # 쿼리별 평균 메트릭 계산
+    # 쿼리별 평균 메트릭 계산 (max_query 이하만)
+    max_query_limit = config['max_query']
     query_step_averages = {}
     for qh in all_query_histories:
         for entry in qh:
             q = entry['query']
+            if q > max_query_limit:  # max_query 초과 쿼리 제외
+                continue
             if q not in query_step_averages:
                 query_step_averages[q] = {'l0': [], 'pixel_ratio': [], 'impact': [], 
                                           'success_ratio': [], 'success_pixel': [], 'unsuccess_pixel': []}
@@ -618,6 +648,11 @@ def main(config):
     impact_list = [entry['avg_impact'] for entry in valid_queries]
     impact_list.append(np.mean(impact_metrics))
 
+    # 공격 성공 통계 계산
+    attack_success_count = sum(attack_success_list)
+    attack_success_rate = attack_success_count / len(attack_success_list) if len(attack_success_list) > 0 else 0.0
+    avg_attack_success_query = np.mean(attack_success_queries) if len(attack_success_queries) > 0 else None
+    
     final_results = {
         "Attack Method": "SpaEvO",
         "Init mIoU": init_mious['mean_iou'],
@@ -638,6 +673,10 @@ def main(config):
         "NPix": config.get("n_pix", 196),
         "Success Ratios (per image)": success_ratio_metrics,
         "Mean Success Ratio": np.mean(success_ratio_metrics),
+        "Attack Success Count": attack_success_count,
+        "Attack Success Rate": attack_success_rate,
+        "Attack Success Queries (per image)": attack_success_queries,
+        "Average Attack Success Query": float(avg_attack_success_query) if avg_attack_success_query is not None else None,
         "Per Query Averages": per_query_avg
     }
 
@@ -656,11 +695,11 @@ if __name__ == '__main__':
     parser.add_argument("--config", type=str, required=True, help="Path to the config file.")
     parser.add_argument('--device', type=str, default='cuda', help='Device to use.')
     parser.add_argument('--max_query', type=int, default=1000, help='Maximum queries for attack.')
-    parser.add_argument('--num_images', type=int, default=10, help='Number of images to evaluate.')
+    parser.add_argument('--num_images', type=int, default=100, help='Number of images to evaluate.')
     parser.add_argument('--pop_size', type=int, default=10, help='Population size.')
-    parser.add_argument('--n_pix', type=int, default=196, help='Number of pixels to keep (sparseness).')
+    parser.add_argument('--n_pix', type=int, default=0, help='Number of pixels to remove (sparseness). 0 = auto (0.004 × H × W).')
     parser.add_argument('--cr', type=float, default=0.9, help='Crossover rate.')
-    parser.add_argument('--mu', type=float, default=0.01, help='Mutation rate.')
+    parser.add_argument('--mu', type=float, default=0.004, help='Mutation rate.')
     parser.add_argument('--success_threshold', type=float, default=0.01, help='Threshold for attack success.')
     parser.add_argument('--init_mode', type=str, default='random', help='Starting point initialization mode.')
     parser.add_argument('--seed', type=int, default=0, help='Random seed.')
