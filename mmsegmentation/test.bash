@@ -99,7 +99,7 @@ done
 
 for model in deeplabv3; do
     for threshold in 0.5; do
-        for npix in 2 4 8 16 32 64 128; do
+        for npix in 16384 3276; do
             python pw_eval.py --config configs_attack/VOC2012/config_${model}.py \
                 --max_query 1000 \
                 --npix ${npix} \
@@ -113,7 +113,7 @@ done
 
 for model in deeplabv3; do
     for threshold in 0.5; do
-        for npix in 4096 8192 16384 32768; do
+        for npix in 16384 32768; do
             python spaevo_eval.py --config configs_attack/VOC2012/config_${model}.py \
                 --max_query 1000 \
                 --num_images 10 \
@@ -141,8 +141,8 @@ done
 
 python pw_eval.py --config configs_attack/VOC2012/config_deeplabv3.py \
     --max_query 1000 \
-    --npix  16384 \
-    --num_images 3 \
+    --npix  1024 \
+    --num_images 100 \
     --attack_mode scheduling \
     --success_threshold 0.5 \
     --verbose
@@ -150,5 +150,6 @@ python pw_eval.py --config configs_attack/VOC2012/config_deeplabv3.py \
 python spaevo_eval.py --config configs_attack/VOC2012/config_deeplabv3.py \
     --max_query 1000 \
     --num_images 100 \
+    --n_pix 1960 \
     --success_threshold 0.5 \
     --verbose

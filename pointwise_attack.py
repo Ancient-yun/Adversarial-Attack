@@ -665,11 +665,12 @@ class PointWiseAttack:
                     terminate = True
                     break
             else:
-                terminate = True
-
-            # Reduce group size
-            if npix >= 2:
-                npix //= 2
+                # If loop completed without breaking (no improvement found this epoch)
+                if npix >= 2:
+                    npix //= 2
+                    terminate = False # Continue with smaller group size
+                else:
+                    terminate = True # Stop if cannot reduce further
 
         # Phase 2: Refinement
         if nquery >= max_query:
