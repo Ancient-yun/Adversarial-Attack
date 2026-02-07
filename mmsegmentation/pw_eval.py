@@ -176,6 +176,17 @@ def process_single_image(args):
     # PointWise Attack 실행
     print(f"[{idx+1}/{total_images}] {filename}: Running PointWise attack (mode={config['attack_mode']})...")
     
+    # Calculate npix: if >= 1, use as fixed count; if < 1, use as ratio of image pixels
+    npix_input = config.get("npix", 196)
+    if npix_input >= 1:
+        npix = int(npix_input)
+    else:
+        # img_tensor_bgr shape: (1, C, H, W)
+        _, _, H, W = img_tensor_bgr.shape
+        total_pixels = H * W
+        npix = max(1, int(total_pixels * npix_input))
+        print(f"    -> Using npix ratio={npix_input}: {npix} pixels (image: {H}x{W}={total_pixels})")
+    
     snapshot_interval = 200
     if config["attack_mode"] == "single":
         x, nquery, D, snapshots = attack.pw_perturb(
@@ -186,14 +197,14 @@ def process_single_image(args):
     elif config["attack_mode"] == "multiple":
         x, nquery, D, snapshots = attack.pw_perturb_multiple(
             img_tensor_bgr.squeeze(0), timg.squeeze(0), original_pred_labels,
-            npix=config.get("npix", 196),
+            npix=npix,
             max_query=config["max_query"],
             snapshot_interval=snapshot_interval
         )
     elif config["attack_mode"] == "scheduling":
         x, nquery, D, snapshots = attack.pw_perturb_multiple_scheduling(
             img_tensor_bgr.squeeze(0), timg.squeeze(0), original_pred_labels,
-            npix=config.get("npix", 196),
+            npix=npix,
             max_query=config["max_query"],
             snapshot_interval=snapshot_interval
         )
@@ -737,7 +748,7 @@ if __name__ == '__main__':
     parser.add_argument('--attack_mode', type=str, default='scheduling', 
                         choices=['single', 'multiple', 'scheduling'],
                         help='Attack mode: single, multiple, or scheduling.')
-    parser.add_argument('--npix', type=int, default=196, help='Pixels per group for multiple mode.')
+    parser.add_argument('--npix', type=float, default=196, help='Pixels per group. If >= 1: fixed count. If < 1: ratio of image pixels (e.g., 0.1 = 10%%).')
     parser.add_argument('--success_threshold', type=float, default=0.01, 
                         help='Threshold for attack success (ratio of changed pixels).')
     parser.add_argument('--init_mode', type=str, default='random',
