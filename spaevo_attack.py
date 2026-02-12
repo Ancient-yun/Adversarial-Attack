@@ -254,7 +254,7 @@ class SpaEvoAttack():
             return x2, f2
         return x1, f1
 
-    def evo_perturb(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, max_query=1000, snapshot_interval=100):
+    def evo_perturb(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, max_query=1000, snapshot_interval=100, query_offset=0):
         # 0. variable init
         if self.seed is not None:
             np.random.seed(self.seed)
@@ -335,7 +335,7 @@ class SpaEvoAttack():
                 D[nqry-1] = current_best_l0 # Record history
                 
                 # Save snapshot at intervals
-                if nqry >= next_snapshot:
+                if nqry + query_offset >= next_snapshot:
                     adv_snapshot = self.modify(best_mask, oimg, timg)
                     snapshots[next_snapshot] = adv_snapshot.cpu().numpy()
                     next_snapshot += snapshot_interval

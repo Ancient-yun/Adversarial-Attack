@@ -219,7 +219,7 @@ class PointWiseAttack:
                 
         return adv_value, nquery
 
-    def pw_perturb(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, max_query=1000, snapshot_interval=100):
+    def pw_perturb(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, max_query=1000, snapshot_interval=100, query_offset=0):
         """
         Single-pixel PointWise perturbation attack.
         
@@ -303,7 +303,7 @@ class PointWiseAttack:
                     x[index] = old_value
 
                 # Save snapshot at intervals
-                if nquery >= next_snapshot:
+                if nquery + query_offset >= next_snapshot:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
@@ -370,7 +370,7 @@ class PointWiseAttack:
                         x[index] = old_value
 
                 # Save snapshot at intervals
-                if nquery >= next_snapshot:
+                if nquery + query_offset >= next_snapshot:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
@@ -390,7 +390,7 @@ class PointWiseAttack:
 
         return x, nquery, D[:nquery], snapshots
 
-    def pw_perturb_multiple(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, npix=196, max_query=1000, snapshot_interval=100):
+    def pw_perturb_multiple(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, npix=196, max_query=1000, snapshot_interval=100, query_offset=0):
         """
         Multiple-pixel PointWise perturbation attack.
         Perturbs groups of pixels instead of single pixels for efficiency.
@@ -477,7 +477,7 @@ class PointWiseAttack:
                     x[idx] = old_value
 
                 # Save snapshot at intervals
-                if nquery >= next_snapshot:
+                if nquery + query_offset >= next_snapshot:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
@@ -547,7 +547,7 @@ class PointWiseAttack:
                         x[idx] = old_value
 
                 # Save snapshot at intervals
-                if nquery >= next_snapshot:
+                if nquery + query_offset >= next_snapshot:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
@@ -567,7 +567,7 @@ class PointWiseAttack:
 
         return x, nquery, D[:nquery], snapshots
 
-    def pw_perturb_multiple_scheduling(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, npix=196, max_query=1000, snapshot_interval=100):
+    def pw_perturb_multiple_scheduling(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, npix=196, max_query=1000, snapshot_interval=100, query_offset=0):
         """
         Multiple-pixel PointWise attack with adaptive group size scheduling.
         Starts with larger groups and reduces size over iterations.
@@ -657,7 +657,7 @@ class PointWiseAttack:
                     x[idx] = old_value
 
                 # Save snapshot at intervals
-                if nquery >= next_snapshot:
+                if nquery + query_offset >= next_snapshot:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 
@@ -737,7 +737,7 @@ class PointWiseAttack:
                         x[idx] = old_value
 
                 # Save snapshot at intervals
-                if nquery >= next_snapshot:
+                if nquery + query_offset >= next_snapshot:
                     snapshots[next_snapshot] = x.copy().reshape(shape)
                     next_snapshot += snapshot_interval
 

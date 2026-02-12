@@ -188,25 +188,29 @@ def process_single_image(args):
         print(f"    -> Using npix ratio={npix_input}: {npix} pixels (image: {H}x{W}={total_pixels})")
     
     snapshot_interval = 200
+    attack_max_query = config["max_query"] - init_nqry
     if config["attack_mode"] == "single":
         x, nquery, D, snapshots = attack.pw_perturb(
             img_tensor_bgr.squeeze(0), timg.squeeze(0), original_pred_labels,
-            max_query=config["max_query"],
-            snapshot_interval=snapshot_interval
+            max_query=attack_max_query,
+            snapshot_interval=snapshot_interval,
+            query_offset=init_nqry
         )
     elif config["attack_mode"] == "multiple":
         x, nquery, D, snapshots = attack.pw_perturb_multiple(
             img_tensor_bgr.squeeze(0), timg.squeeze(0), original_pred_labels,
             npix=npix,
-            max_query=config["max_query"],
-            snapshot_interval=snapshot_interval
+            max_query=attack_max_query,
+            snapshot_interval=snapshot_interval,
+            query_offset=init_nqry
         )
     elif config["attack_mode"] == "scheduling":
         x, nquery, D, snapshots = attack.pw_perturb_multiple_scheduling(
             img_tensor_bgr.squeeze(0), timg.squeeze(0), original_pred_labels,
             npix=npix,
-            max_query=config["max_query"],
-            snapshot_interval=snapshot_interval
+            max_query=attack_max_query,
+            snapshot_interval=snapshot_interval,
+            query_offset=init_nqry
         )
     else:
         raise ValueError(f"Unknown attack mode: {config['attack_mode']}")
@@ -672,8 +676,9 @@ def main(config):
             
             query_labels.append(i * snapshot_interval)
             
-    # Process Final Results
-    if final_adv_img_list:
+    # Process Final Results (skip if last level already covers max_query)
+    last_level_q = (levels - 1) * snapshot_interval
+    if final_adv_img_list and last_level_q != config["max_query"]:
         final_benign_res, final_gt_res = eval_miou(model, img_list, final_adv_img_list, gt_list, config)
         
         benign_to_adv_mious.append(final_benign_res['mean_iou'])
