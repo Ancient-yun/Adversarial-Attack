@@ -646,6 +646,9 @@ def main(config):
     oacc_gt = []
     avg_miou_no0_benign = []
     avg_miou_no0_gt = []
+    per_cat_iou_benign_list = []
+    per_cat_iou_gt_list = []
+    query_labels = []
     
     for i in range(levels):
         if adv_img_lists[i]:
@@ -657,6 +660,7 @@ def main(config):
             
             per_cat = np.array(benign_to_adv_miou['per_category_iou'])
             avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
+            per_cat_iou_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat])
 
             gt_to_adv_mious.append(gt_to_adv_miou['mean_iou'])
             acc_gt.append(gt_to_adv_miou['mean_accuracy'])
@@ -664,6 +668,9 @@ def main(config):
             
             per_cat_gt = np.array(gt_to_adv_miou['per_category_iou'])
             avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
+            per_cat_iou_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_gt])
+            
+            query_labels.append(i * snapshot_interval)
             
     # Process Final Results
     if final_adv_img_list:
@@ -675,6 +682,7 @@ def main(config):
         
         per_cat = np.array(final_benign_res['per_category_iou'])
         avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
+        per_cat_iou_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat])
 
         gt_to_adv_mious.append(final_gt_res['mean_iou'])
         acc_gt.append(final_gt_res['mean_accuracy'])
@@ -682,6 +690,9 @@ def main(config):
         
         per_cat_gt = np.array(final_gt_res['per_category_iou'])
         avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
+        per_cat_iou_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_gt])
+        
+        query_labels.append(config["max_query"])
 
     # Extract lists for spaevo-like format (Snapshot steps + Final Average)
     # Filter snapshots up to max_query to avoid sparse tails
@@ -714,8 +725,11 @@ def main(config):
         "L0": l0_list,
         "Ratio": ratio_list,
         "Impact": impact_list,
+        "Per-category IoU(benign)": per_cat_iou_benign_list,
+        "Per-category IoU(gt)": per_cat_iou_gt_list,
         "Average mIoU excluding label 0 (benign)": avg_miou_no0_benign,
         "Average mIoU excluding label 0 (gt)": avg_miou_no0_gt,
+        "Query Labels": query_labels,
         "Average Queries": np.mean(query_metrics),
         "Max Query Limit": config["max_query"],
         "NPix": config.get("npix", 196),
