@@ -136,3 +136,4 @@ ov-seg/output/inference/sem_seg_evaluation.pth
 SED/ckpt/*
 **/output/
 wandb/
+*.png

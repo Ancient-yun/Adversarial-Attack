@@ -331,53 +331,54 @@ def process_single_image(args):
             'unsuccess_pixel': unsuccess_pixel_at_q
         })
 
-    # Final snapshot 처리
+    # Final snapshot 처리: 일찍 끝난 이미지의 final 상태를 이후 정규 snapshot에도 반영
     if 'final' in snapshots:
-        # final_query를 total_nquery로 설정하여 일관성 유지
+        snapshot_img = snapshots['final']
+        snapshot_np = np.transpose(snapshot_img, (1, 2, 0)).astype(np.uint8)
+        
+        # 메트릭 계산 - D의 마지막 값 사용
+        l0_at_q = int(D_numpy[-1]) if len(D_numpy) > 0 else 0
+        pixel_ratio_at_q = calculate_pixel_ratio(img_bgr, snapshot_np)
+        
+        snapshot_result = inference_model(model, snapshot_np)
+        snapshot_pred = snapshot_result.pred_sem_seg.data.squeeze().cpu().numpy()
+        
+        success_pixel_at_q = int(((snapshot_pred != ori_pred) & foreground_mask).sum())
+        unsuccess_pixel_at_q = int(((snapshot_pred == ori_pred) & foreground_mask).sum())
+        impact_at_q = calculate_impact(img_bgr, snapshot_np, ori_pred, snapshot_pred)
+        success_ratio_at_q = success_pixel_at_q / foreground_pixels if foreground_pixels > 0 else 0.0
+        
+        # 이미지 저장 (Final은 무조건 저장) - total_nquery 사용
         final_query = total_nquery
-        # 이미 정수형 키에 포함되어 있는지 확인 (중복 방지)
-        if final_query not in snapshot_queries:
-            snapshot_img = snapshots['final']
-            snapshot_np = np.transpose(snapshot_img, (1, 2, 0)).astype(np.uint8)
-            
-            # 메트릭 계산 - D의 마지막 값 사용
-            l0_at_q = int(D_numpy[-1]) if len(D_numpy) > 0 else 0
-
-            pixel_ratio_at_q = calculate_pixel_ratio(img_bgr, snapshot_np)
-            
-            snapshot_result = inference_model(model, snapshot_np)
-            snapshot_pred = snapshot_result.pred_sem_seg.data.squeeze().cpu().numpy()
-            
-            success_pixel_at_q = int(((snapshot_pred != ori_pred) & foreground_mask).sum())
-            unsuccess_pixel_at_q = int(((snapshot_pred == ori_pred) & foreground_mask).sum())
-            impact_at_q = calculate_impact(img_bgr, snapshot_np, ori_pred, snapshot_pred)
-            success_ratio_at_q = success_pixel_at_q / foreground_pixels if foreground_pixels > 0 else 0.0
-            
-            # 이미지 저장 (Final은 무조건 저장) - total_nquery 사용
-            save_q_dir = os.path.join(current_img_save_dir, f"{final_query}query")
-            os.makedirs(save_q_dir, exist_ok=True)
-            Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
-            
-            # Delta 이미지 저장
-            delta_img = np.abs(img_bgr.astype(np.int16) - snapshot_np.astype(np.int16)).astype(np.uint8)
-            Image.fromarray(delta_img).save(os.path.join(save_q_dir, "delta.png"))
-            
-            visualize_segmentation(snapshot_np, snapshot_pred, 
-                save_path=os.path.join(save_q_dir, "adv_seg.png"),
-                alpha=0.5, dataset=config["dataset"])
-            visualize_segmentation(snapshot_np, snapshot_pred, 
-                save_path=os.path.join(save_q_dir, "adv_seg_only.png"),
-                alpha=1.0, dataset=config["dataset"])
-            
-            query_history.append({
-                'query': final_query,
-                'l0': l0_at_q,
-                'pixel_ratio': float(pixel_ratio_at_q),
-                'impact': float(impact_at_q),
-                'success_ratio': float(success_ratio_at_q),
-                'success_pixel': success_pixel_at_q,
-                'unsuccess_pixel': unsuccess_pixel_at_q
-            })
+        save_q_dir = os.path.join(current_img_save_dir, f"{final_query}query")
+        os.makedirs(save_q_dir, exist_ok=True)
+        Image.fromarray(snapshot_np[:, :, ::-1]).save(os.path.join(save_q_dir, "adv.png"))
+        delta_img = np.abs(img_bgr.astype(np.int16) - snapshot_np.astype(np.int16)).astype(np.uint8)
+        Image.fromarray(delta_img).save(os.path.join(save_q_dir, "delta.png"))
+        visualize_segmentation(snapshot_np, snapshot_pred, 
+            save_path=os.path.join(save_q_dir, "adv_seg.png"),
+            alpha=0.5, dataset=config["dataset"])
+        visualize_segmentation(snapshot_np, snapshot_pred, 
+            save_path=os.path.join(save_q_dir, "adv_seg_only.png"),
+            alpha=1.0, dataset=config["dataset"])
+        
+        # 일찍 끝난 이미지: 이후 정규 snapshot query에도 final 상태의 메트릭을 기록
+        # (예: 500 query에서 끝나면 600, 800, 1000에도 같은 값 기록)
+        snapshot_interval = config.get("snapshot_interval", 200)
+        max_query_limit = config['max_query']
+        recorded_queries = set(entry['query'] for entry in query_history)
+        
+        for q in range(0, max_query_limit + 1, snapshot_interval):
+            if q not in recorded_queries:
+                query_history.append({
+                    'query': q,
+                    'l0': l0_at_q,
+                    'pixel_ratio': float(pixel_ratio_at_q),
+                    'impact': float(impact_at_q),
+                    'success_ratio': float(success_ratio_at_q),
+                    'success_pixel': success_pixel_at_q,
+                    'unsuccess_pixel': unsuccess_pixel_at_q
+                })
     
     # max_query 이하에서 공격 성공한 가장 큰 쿼리 찾기
     max_query_limit = config['max_query']
@@ -608,13 +609,16 @@ def main(config):
         if result['attack_success'] and result['attack_success_query'] is not None:
             attack_success_queries.append(result['attack_success_query'])
 
-    # 쿼리별 평균 메트릭 계산 (max_query 이하만)
+    # 쿼리별 평균 메트릭 계산 (정규 snapshot query만: 0, 200, 400, ...)
     max_query_limit = config['max_query']
+    regular_queries = set(i * snapshot_interval for i in range(levels))
     query_step_averages = {}
     for qh in all_query_histories:
         for entry in qh:
             q = entry['query']
             if q > max_query_limit:  # max_query 초과 쿼리 제외
+                continue
+            if q not in regular_queries:  # 비정규 query 제외 (일찍 끝난 개별 이미지의 final query)
                 continue
             if q not in query_step_averages:
                 query_step_averages[q] = {'l0': [], 'pixel_ratio': [], 'impact': [], 
@@ -652,6 +656,8 @@ def main(config):
     avg_miou_no0_gt = []
     per_cat_iou_benign_list = []
     per_cat_iou_gt_list = []
+    per_cat_acc_benign_list = []
+    per_cat_acc_gt_list = []
     query_labels = []
     
     for i in range(levels):
@@ -665,6 +671,8 @@ def main(config):
             per_cat = np.array(benign_to_adv_miou['per_category_iou'])
             avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
             per_cat_iou_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat])
+            per_cat_acc = np.array(benign_to_adv_miou['per_category_accuracy'])
+            per_cat_acc_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc])
 
             gt_to_adv_mious.append(gt_to_adv_miou['mean_iou'])
             acc_gt.append(gt_to_adv_miou['mean_accuracy'])
@@ -673,6 +681,8 @@ def main(config):
             per_cat_gt = np.array(gt_to_adv_miou['per_category_iou'])
             avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
             per_cat_iou_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_gt])
+            per_cat_acc_gt = np.array(gt_to_adv_miou['per_category_accuracy'])
+            per_cat_acc_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc_gt])
             
             query_labels.append(i * snapshot_interval)
             
@@ -688,6 +698,8 @@ def main(config):
         per_cat = np.array(final_benign_res['per_category_iou'])
         avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
         per_cat_iou_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat])
+        per_cat_acc = np.array(final_benign_res['per_category_accuracy'])
+        per_cat_acc_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc])
 
         gt_to_adv_mious.append(final_gt_res['mean_iou'])
         acc_gt.append(final_gt_res['mean_accuracy'])
@@ -696,12 +708,14 @@ def main(config):
         per_cat_gt = np.array(final_gt_res['per_category_iou'])
         avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
         per_cat_iou_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_gt])
+        per_cat_acc_gt = np.array(final_gt_res['per_category_accuracy'])
+        per_cat_acc_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc_gt])
         
         query_labels.append(config["max_query"])
 
     # Extract lists for spaevo-like format (Snapshot steps + Final Average)
-    # Filter snapshots up to max_query to avoid sparse tails
-    valid_queries = [entry for entry in per_query_avg if entry['query'] <= config["max_query"]]
+    # Only include regular snapshot queries (0, 200, 400, ...)
+    valid_queries = [entry for entry in per_query_avg if entry['query'] in regular_queries and entry['query'] <= config["max_query"]]
     
     l0_list = [entry['avg_l0'] for entry in valid_queries]
     l0_list.append(np.mean(l0_metrics))
@@ -732,6 +746,8 @@ def main(config):
         "Impact": impact_list,
         "Per-category IoU(benign)": per_cat_iou_benign_list,
         "Per-category IoU(gt)": per_cat_iou_gt_list,
+        "Per-category Accuracy(benign)": per_cat_acc_benign_list,
+        "Per-category Accuracy(gt)": per_cat_acc_gt_list,
         "Average mIoU excluding label 0 (benign)": avg_miou_no0_benign,
         "Average mIoU excluding label 0 (gt)": avg_miou_no0_gt,
         "Query Labels": query_labels,
