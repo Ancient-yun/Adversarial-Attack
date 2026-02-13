@@ -602,6 +602,8 @@ def main(config):
     avg_miou_no0_gt = []
     per_cat_iou_benign_list = []
     per_cat_iou_gt_list = []
+    per_cat_acc_benign_list = []
+    per_cat_acc_gt_list = []
     query_labels = []
 
     for i in range(levels):
@@ -615,6 +617,8 @@ def main(config):
             per_cat = np.array(benign_to_adv_miou['per_category_iou'])
             avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
             per_cat_iou_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat])
+            per_cat_acc = np.array(benign_to_adv_miou['per_category_accuracy'])
+            per_cat_acc_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc])
 
             gt_to_adv_mious.append(gt_to_adv_miou['mean_iou'])
             acc_gt.append(gt_to_adv_miou['mean_accuracy'])
@@ -623,6 +627,8 @@ def main(config):
             per_cat_gt = np.array(gt_to_adv_miou['per_category_iou'])
             avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
             per_cat_iou_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_gt])
+            per_cat_acc_gt = np.array(gt_to_adv_miou['per_category_accuracy'])
+            per_cat_acc_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc_gt])
             
             query_labels.append(i * snapshot_interval)
             
@@ -638,6 +644,8 @@ def main(config):
         per_cat = np.array(final_benign_res['per_category_iou'])
         avg_miou_no0_benign.append(np.nanmean(per_cat[1:]) if len(per_cat) > 1 else per_cat[0])
         per_cat_iou_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat])
+        per_cat_acc = np.array(final_benign_res['per_category_accuracy'])
+        per_cat_acc_benign_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc])
 
         gt_to_adv_mious.append(final_gt_res['mean_iou'])
         acc_gt.append(final_gt_res['mean_accuracy'])
@@ -646,6 +654,8 @@ def main(config):
         per_cat_gt = np.array(final_gt_res['per_category_iou'])
         avg_miou_no0_gt.append(np.nanmean(per_cat_gt[1:]) if len(per_cat_gt) > 1 else per_cat_gt[0])
         per_cat_iou_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_gt])
+        per_cat_acc_gt = np.array(final_gt_res['per_category_accuracy'])
+        per_cat_acc_gt_list.append([round(float(v), 4) if not np.isnan(v) else None for v in per_cat_acc_gt])
         
         query_labels.append(config["max_query"])
 
@@ -681,6 +691,8 @@ def main(config):
         "Impact": impact_list,
         "Per-category IoU(benign)": per_cat_iou_benign_list,
         "Per-category IoU(gt)": per_cat_iou_gt_list,
+        "Per-category Accuracy(benign)": per_cat_acc_benign_list,
+        "Per-category Accuracy(gt)": per_cat_acc_gt_list,
         "Average mIoU excluding label 0 (benign)": avg_miou_no0_benign,
         "Average mIoU excluding label 0 (gt)": avg_miou_no0_gt,
         "Query Labels": query_labels,

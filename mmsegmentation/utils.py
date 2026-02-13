@@ -266,8 +266,8 @@ def save_experiment_results(results, config, sweep_config=None, timestamp=None, 
         if key == "Query Labels":
             # Skip Query Labels in output - only used internally
             continue
-        if "Per-category IoU" in key and isinstance(value, list) and len(value) > 0:
-            # Per-category IoU의 경우 쿼리별로 줄바꿈하여 가독성 개선
+        if ("Per-category IoU" in key or "Per-category Accuracy" in key) and isinstance(value, list) and len(value) > 0:
+            # Per-category IoU/Accuracy의 경우 쿼리별로 줄바꿈하여 가독성 개선
             lines.append(f"{key}:")
             for i, query_result in enumerate(value):
                 # Use actual query labels from results
