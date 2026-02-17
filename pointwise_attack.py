@@ -106,8 +106,10 @@ class PointWiseAttack:
         """Set ignore index based on dataset name."""
         if dataset_name.lower() == 'cityscapes':
             self.ignore_index = 255
-        else:  # VOC2012, ADE20K, etc.
+        elif dataset_name.lower() in ['voc2012']:
             self.ignore_index = 0
+        else:  # ADE20K 등: 예측에서 제외할 클래스 없음 (label 0 = wall)
+            self.ignore_index = None
 
     def _get_pred_labels(self, img):
         """Get prediction labels from model for the given image tensor."""
@@ -159,7 +161,10 @@ class PointWiseAttack:
         pred_labels = self._get_pred_labels(img)
         
         # 배경/ignore class 제외 마스크
-        foreground_mask = original_pred_labels != self.ignore_index
+        if self.ignore_index is not None:
+            foreground_mask = original_pred_labels != self.ignore_index
+        else:
+            foreground_mask = torch.ones_like(original_pred_labels, dtype=torch.bool)
         
         if targeted and target_labels is not None:
             # Targeted attack: success if prediction matches target
