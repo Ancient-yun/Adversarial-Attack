@@ -35,7 +35,9 @@ class SpaEvoAttack():
             self.ignore_index = 255
         elif dataset_name.lower() in ['voc2012']:
             self.ignore_index = 0
-        else:  # ADE20K 등: 예측에서 제외할 클래스 없음 (label 0 = wall)
+        elif dataset_name.lower() in ['ade20k']:
+            self.ignore_index = 255
+        else:
             self.ignore_index = None
 
     def _get_pred_labels(self, img):
