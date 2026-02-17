@@ -162,7 +162,7 @@ def process_single_image(args):
         success_threshold=config.get("success_threshold", 0.01),
         verbose=config.get("verbose", False)
     )
-    attack.set_ignore_index(config["dataset"])  # 데이터셋별 ignore index 설정
+    attack.set_ignore_index(config["dataset"], include_bg=config.get("include_bg", False))  # 데이터셋별 ignore index 설정
 
     # Starting Point 생성
     print(f"\n[{idx+1}/{total_images}] {filename}: Generating starting point...")
@@ -252,7 +252,7 @@ def process_single_image(args):
     if config["dataset"].lower() in ["cityscapes", "ade20k"]:
         ignore_index = 255
     elif config["dataset"] == "VOC2012":
-        ignore_index = 0
+        ignore_index = None if config.get("include_bg", False) else 0
     else:
         ignore_index = None
     if ignore_index is not None:
@@ -799,6 +799,8 @@ if __name__ == '__main__':
                         help='Starting point initialization mode.')
     parser.add_argument('--seed', type=int, default=0, help='Random seed.')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output.')
+    parser.add_argument('--include_bg', action='store_true',
+                        help='Include background class in attack (do not exclude label 0 for VOC2012).')
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -812,6 +814,7 @@ if __name__ == '__main__':
     config["init_mode"] = args.init_mode
     config["seed"] = args.seed
     config["verbose"] = args.verbose
+    config["include_bg"] = args.include_bg
     config["base_dir"] = f"./data/PointWise/results/{config['dataset']}/{config['model']}"
 
     main(config)

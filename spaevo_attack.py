@@ -29,12 +29,17 @@ class SpaEvoAttack():
         self.is_mmseg = is_mmseg
         self.ignore_index = 255  # Default: Cityscapes uses 255, can be changed via set_ignore_index
 
-    def set_ignore_index(self, dataset_name):
-        """Set ignore index based on dataset name."""
+    def set_ignore_index(self, dataset_name, include_bg=False):
+        """Set ignore index based on dataset name.
+
+        Args:
+            dataset_name: Name of the dataset.
+            include_bg: If True, do not exclude background (ignore_index=None for VOC2012).
+        """
         if dataset_name.lower() == 'cityscapes':
             self.ignore_index = 255
         elif dataset_name.lower() in ['voc2012']:
-            self.ignore_index = 0
+            self.ignore_index = None if include_bg else 0
         elif dataset_name.lower() in ['ade20k']:
             self.ignore_index = 255
         else:
