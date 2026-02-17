@@ -477,8 +477,8 @@ def main(config):
                 "checkpoint": '../ckpt/pspnet_r101-d8_512x512_160k_ade20k_20200615_100650-967c316f.pth'
             },
             "setr": {
-                "config": 'configs/setr/setr_vit-l_pup_8xb1-80k_ade20k-768x768.py',
-                "checkpoint": '../ckpt/setr_pup_vit-large_8x1_768x768_80k_ade20k_20211122_155115-f6f37b8f.pth'
+                "config": 'configs/setr/setr_vit-l_pup_8xb2-160k_ade20k-512x512.py',
+                "checkpoint": '../ckpt/setr_pup_512x512_160k_b16_ade20k_20210619_191343-7e0ce826.pth'
             }
         },
         "VOC2012": {
