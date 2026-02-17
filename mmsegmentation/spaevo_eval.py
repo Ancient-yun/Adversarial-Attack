@@ -216,8 +216,11 @@ def process_single_image(args):
     impact = calculate_impact(img_bgr, adv_img_np, ori_pred, adv_pred)
     
     # 최종 success_ratio 계산 (배경/ignore 제외, 원본 예측 대비 변경된 픽셀 비율)
-    ignore_index = 255 if config["dataset"].lower() == "cityscapes" else 0
-    foreground_mask = ori_pred != ignore_index
+    ignore_index = 255 if config["dataset"].lower() == "cityscapes" else (0 if config["dataset"] == "VOC2012" else None)
+    if ignore_index is not None:
+        foreground_mask = ori_pred != ignore_index
+    else:
+        foreground_mask = np.ones_like(ori_pred, dtype=bool)
     if foreground_mask.sum() > 0:
         success_ratio = ((adv_pred != ori_pred) & foreground_mask).sum() / foreground_mask.sum()
     else:
