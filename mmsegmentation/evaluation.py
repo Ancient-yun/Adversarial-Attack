@@ -19,7 +19,7 @@ if current_dir not in sys.path:
 inference_model = None
 try:
     from mmseg.apis import inference_model
-except (ImportError, ModuleNotFoundError, AttributeError) as e:
+except Exception as e:
     print(f"Warning: mmseg.apis.inference_model not available in evaluation.py: {e}")
     inference_model = None
 

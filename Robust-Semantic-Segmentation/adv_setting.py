@@ -16,8 +16,13 @@ import random
 from model.pspnet import PSPNet, DeepLabV3, PSPNet_DDCAT, DeepLabV3_DDCAT
 import logging
 # 상위 디렉토리를 Python path에 추가
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# 상위 디렉토리에서 dataset 클래스들 import
+_parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(_parent_dir)
+# mmsegmentation 디렉토리도 추가 (dataset.py가 여기에 있음)
+_mmseg_dir = os.path.join(_parent_dir, 'mmsegmentation')
+if os.path.isdir(_mmseg_dir):
+    sys.path.append(_mmseg_dir)
+# dataset 클래스들 import
 from dataset import CitySet, ADESet, VOCSet
 cv2.ocl.setUseOpenCL(False)
 import torch, torch.nn.functional as F, numpy as np, cv2, math

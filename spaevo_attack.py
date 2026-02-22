@@ -2,7 +2,12 @@
 import torch
 import numpy as np
 import random
+import sys
+import os
 from utils_se import l0
+
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Robust-Semantic-Segmentation'))
+from adv_setting import model_predict
 
 class SpaEvoAttack():
     def __init__(self,
@@ -15,7 +20,8 @@ class SpaEvoAttack():
                 success_threshold=0.01,
                 verbose=False,
                 device='cuda',
-                is_mmseg=True):
+                is_mmseg=True,
+                cfg=None):
 
         self.model = model
         self.n_pix = n_pix
@@ -27,6 +33,7 @@ class SpaEvoAttack():
         self.verbose = verbose
         self.device = device
         self.is_mmseg = is_mmseg
+        self.cfg = cfg
         self.ignore_index = 255  # Default: Cityscapes uses 255, can be changed via set_ignore_index
 
     def set_ignore_index(self, dataset_name, include_bg=False):
@@ -59,9 +66,13 @@ class SpaEvoAttack():
             result = inference_model(self.model, img_np)
             return result.pred_sem_seg.data.squeeze().cuda()
         else:
-            # Fallback for other models (e.g. classification)
-            # Not implemented for this port
-            raise NotImplementedError("Only mmseg models are supported")
+            # Standard PyTorch model via model_predict (Robust-Semantic-Segmentation)
+            if isinstance(img, torch.Tensor):
+                img_np = img.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8) if img.dim() == 4 else img.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+            else:
+                img_np = img
+            _, pred_labels = model_predict(self.model, img_np, self.cfg)
+            return pred_labels.cuda() if isinstance(pred_labels, torch.Tensor) else torch.from_numpy(pred_labels).cuda()
 
     def check_adv_status(self, img, original_pred_labels, target_labels=None, targeted=False):
         pred_labels = self._get_pred_labels(img)

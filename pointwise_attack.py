@@ -16,7 +16,7 @@ import os
 
 try:
     from mmseg.apis import inference_model
-except ImportError:
+except Exception:
     inference_model = None
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'Robust-Semantic-Segmentation'))
