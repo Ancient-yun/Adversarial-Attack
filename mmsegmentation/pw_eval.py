@@ -164,6 +164,12 @@ def process_single_image(args):
     )
     attack.set_ignore_index(config["dataset"], include_bg=config.get("include_bg", False))  # 데이터셋별 ignore index 설정
 
+    # Set attack mask if label_only_attack is enabled (pred 기준 배경 제외)
+    if config.get("label_only_attack", False):
+        attack_mask = (ori_pred != 0)  # ori_pred 기준 배경(label 0) 제외
+        attack.set_attack_mask(attack_mask)
+        print(f"    -> label_only_attack ON: {attack_mask.sum()}/{attack_mask.size} pixels ({attack_mask.mean()*100:.1f}%) targeted")
+
     # Starting Point 생성
     print(f"\n[{idx+1}/{total_images}] {filename}: Generating starting point...")
     timg, init_nqry, _ = gen_starting_point_seg(
@@ -172,6 +178,12 @@ def process_single_image(args):
         init_mode=config.get("init_mode", "salt_pepper"),
         dataset_name=config["dataset"]
     )
+
+    # Starting point에서 배경 픽셀은 원본 유지 (foreground에만 노이즈)
+    if config.get("label_only_attack", False) and attack.attack_mask is not None:
+        mask = torch.from_numpy(attack.attack_mask.astype(np.float32)).cuda()
+        timg = timg * mask[None, None, :, :] + img_tensor_bgr * (1 - mask[None, None, :, :])
+        print(f"    -> Starting point masked: bg pixels kept as original")
 
     # PointWise Attack 실행
     print(f"[{idx+1}/{total_images}] {filename}: Running PointWise attack (mode={config['attack_mode']})...")
@@ -801,6 +813,8 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output.')
     parser.add_argument('--include_bg', action='store_true',
                         help='Include background class in attack (do not exclude label 0 for VOC2012).')
+    parser.add_argument('--label_only_attack', action='store_true',
+                        help='Only attack foreground label pixels (exclude background label 0 based on model prediction).')
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -815,6 +829,7 @@ if __name__ == '__main__':
     config["seed"] = args.seed
     config["verbose"] = args.verbose
     config["include_bg"] = args.include_bg
+    config["label_only_attack"] = args.label_only_attack
     config["base_dir"] = f"./data/PointWise/results/{config['dataset']}/{config['model']}"
 
     main(config)

@@ -35,6 +35,7 @@ class SpaEvoAttack():
         self.is_mmseg = is_mmseg
         self.cfg = cfg
         self.ignore_index = 255  # Default: Cityscapes uses 255, can be changed via set_ignore_index
+        self.attack_mask = None  # (H, W) boolean numpy array, None = attack all pixels
 
     def set_ignore_index(self, dataset_name, include_bg=False):
         """Set ignore index based on dataset name.
@@ -51,6 +52,15 @@ class SpaEvoAttack():
             self.ignore_index = 255
         else:
             self.ignore_index = None
+
+    def set_attack_mask(self, mask):
+        """Set attack mask to restrict perturbation to specific pixels.
+        
+        Args:
+            mask: (H, W) boolean numpy array. True = attackable, False = protected.
+                  If None, all pixels are attackable.
+        """
+        self.attack_mask = mask
 
     def _get_pred_labels(self, img):
         if self.is_mmseg:
@@ -123,7 +133,15 @@ class SpaEvoAttack():
         # So idx = row * wi + col. This matches standard flattening if we flatten H*W.
         
         out = self.convert2D_to_1D(p[0], p[1], wi)
-        return out.cpu().numpy()
+        out = out.cpu().numpy()
+        
+        # Filter by attack mask if set
+        if self.attack_mask is not None:
+            mask_flat = self.attack_mask.reshape(-1)
+            valid_set = set(np.where(mask_flat)[0])
+            out = np.array([idx for idx in out if idx in valid_set])
+        
+        return out
 
     def uni_rand(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False):
         """
@@ -250,6 +268,12 @@ class SpaEvoAttack():
         # mask=0 -> oimg
         
         img = timg * mask_tensor + oimg * (1 - mask_tensor)
+        
+        # Force background pixels to original if attack mask is set
+        if self.attack_mask is not None:
+            attack_mask_tensor = torch.from_numpy(self.attack_mask.astype(np.float32)).to(self.device)
+            img = img * attack_mask_tensor + oimg * (1 - attack_mask_tensor)
+        
         return img
 
     def feval(self, pop, oimg, timg, original_pred_labels, target_labels, targeted):

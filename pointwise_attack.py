@@ -101,6 +101,7 @@ class PointWiseAttack:
         self.verbose = verbose
         self.device = torch.device('cuda')
         self.ignore_index = 255  # Default: Cityscapes uses 255, can be changed via set_ignore_index
+        self.attack_mask = None  # (H, W) boolean numpy array, None = attack all pixels
 
     def set_ignore_index(self, dataset_name, include_bg=False):
         """Set ignore index based on dataset name.
@@ -117,6 +118,32 @@ class PointWiseAttack:
             self.ignore_index = 255
         else:
             self.ignore_index = None
+
+    def set_attack_mask(self, mask):
+        """Set attack mask to restrict perturbation to specific pixels.
+        
+        Args:
+            mask: (H, W) boolean numpy array. True = attackable, False = protected.
+                  If None, all pixels are attackable.
+        """
+        self.attack_mask = mask
+
+    def _get_valid_flat_indices(self, shape):
+        """Get set of valid flat indices based on attack_mask.
+        
+        Args:
+            shape: Image shape (C, H, W)
+            
+        Returns:
+            set of valid flat indices, or None if no mask is set.
+        """
+        if self.attack_mask is None:
+            return None
+        C, H, W = shape
+        mask_flat = self.attack_mask.reshape(-1)
+        valid_pixels = np.where(mask_flat)[0]
+        valid_flat = np.concatenate([c * H * W + valid_pixels for c in range(C)])
+        return set(valid_flat.tolist())
 
     def _get_pred_labels(self, img):
         """Get prediction labels from model for the given image tensor."""
@@ -271,6 +298,11 @@ class PointWiseAttack:
         nquery = 0
         D = np.zeros(max_query + 500).astype(int)
         d = l0_distance(oimg, x.reshape(shape))
+
+        # Attack mask: compute valid indices for filtering
+        valid_set = None
+        if self.attack_mask is not None:
+            valid_set = self._get_valid_flat_indices(shape)
         
         # Snapshot storage
         snapshots = {}
@@ -285,6 +317,8 @@ class PointWiseAttack:
         while not terminate:
             indices = list(range(N))
             random.shuffle(indices)
+            if valid_set is not None:
+                indices = [i for i in indices if i in valid_set]
 
             for index in indices:
                 old_value = x[index]
@@ -335,6 +369,8 @@ class PointWiseAttack:
         while not terminate:
             indices = list(range(N))
             random.shuffle(indices)
+            if valid_set is not None:
+                indices = [i for i in indices if i in valid_set]
             improved = False
 
             for index in indices:
@@ -443,6 +479,12 @@ class PointWiseAttack:
         nquery = 0
         D = np.zeros(max_query + 500).astype(int)
         d = l0_distance(oimg, x.reshape(shape))
+
+        # Attack mask: compute valid indices for filtering
+        valid_set = None
+        if self.attack_mask is not None:
+            valid_set = self._get_valid_flat_indices(shape)
+
         ngroup = N // npix
         
         # Snapshot storage
@@ -458,6 +500,9 @@ class PointWiseAttack:
         while not terminate:
             indices = list(range(N))
             random.shuffle(indices)
+            if valid_set is not None:
+                indices = [i for i in indices if i in valid_set]
+            ngroup = len(indices) // npix
 
             for group_idx in range(ngroup):
                 idx = indices[group_idx * npix:(group_idx + 1) * npix]
@@ -511,6 +556,9 @@ class PointWiseAttack:
         while not terminate:
             indices = list(range(N))
             random.shuffle(indices)
+            if valid_set is not None:
+                indices = [i for i in indices if i in valid_set]
+            ngroup = len(indices) // npix
             improved = False
 
             for group_idx in range(ngroup):
@@ -620,6 +668,11 @@ class PointWiseAttack:
         nquery = 0
         D = np.zeros(max_query + 500).astype(int)
         d = l0_distance(oimg, x.reshape(shape))
+
+        # Attack mask: compute valid indices for filtering
+        valid_set = None
+        if self.attack_mask is not None:
+            valid_set = self._get_valid_flat_indices(shape)
         
         # Snapshot storage
         snapshots = {}
@@ -633,9 +686,11 @@ class PointWiseAttack:
 
         # Phase 1: Greedy group restoration with scheduling
         while not terminate:
-            ngroup = N // npix
             indices = list(range(N))
             random.shuffle(indices)
+            if valid_set is not None:
+                indices = [i for i in indices if i in valid_set]
+            ngroup = len(indices) // npix
 
             for group_idx in range(ngroup):
                 idx = indices[group_idx * npix:(group_idx + 1) * npix]
@@ -693,11 +748,12 @@ class PointWiseAttack:
         if self.verbose:
             print('Refine stage!')
 
-        ngroup = N // max(npix, 1)
-        
         while not terminate:
             indices = list(range(N))
             random.shuffle(indices)
+            if valid_set is not None:
+                indices = [i for i in indices if i in valid_set]
+            ngroup = len(indices) // max(npix, 1)
             improved = False
 
             for group_idx in range(ngroup):

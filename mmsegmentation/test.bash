@@ -48,7 +48,7 @@ done
 
 threshold=(0.5 0,6)
 for threshold in ; do
-    python pw_eval.py --config configs_attack/VOC2012/config_pspnet.py \
+    python pw_eval.py --config configs_attack/ade20k/config_pspnet.py \
         --attack_mode scheduling \
         --max_query 1000 \
         --npix 1960 \
@@ -56,87 +56,41 @@ for threshold in ; do
         --success_threshold ${threshold}
 done
 
-for model in deeplabv3 pspnet; do
-    for threshold in 0.5 0.6; do
-        python spaevo_eval.py --config configs_attack/VOC2012/config_${model}.py \
+for model in seg; do
+    for threshold in 0.2 0.3; do
+        python spaevo_eval.py --config configs_attack/ade20k/config_${model}.py \
             --max_query 1000 \
             --num_images 100 \
             --n_pix 1960 \
-            --pop_size 100 \
-            --success_threshold ${threshold} \
-            --verbose
+            --success_threshold ${threshold} 
     done
 done
 
 
-
-
- 0.008 0.016 0.032
-
-for model in deeplabv3; do
+for model in seg; do
     for threshold in 0.2 0.3; do
-        for npix in 0.008 0.016 0.032; do
-            python pw_eval.py --config configs_attack/cityscapes/config_${model}.py \
-                --max_query 1000 \
-                --npix ${npix} \
-                --num_images 100 \
-                --attack_mode scheduling \
-                --success_threshold ${threshold} \
-                --verbose
-        done
-    done
-done
-
-for model in deeplabv3 pspnet seg setr; do
-    for threshold in 0.2 0.3; do
-        python spaevo_eval.py --config configs_attack/cityscapes/config_${model}.py \
+        python pw_eval.py --config configs_attack/VOC2012/config_${model}.py \
             --max_query 1000 \
             --num_images 100 \
             --n_pix 1960 \
-            --pop_size 100 \
-            --success_threshold ${threshold} \
-            --verbose
+            --success_threshold ${threshold}
     done
 done
 
-for model in deeplabv3 pspnet; do
-    for threshold in 0.2 0.3; do
-        for npix in 0.008 0.016 0.032; do
-            python pw_eval.py --config configs_attack/VOC2012/config_${model}.py \
-                --max_query 1000 \
-                --npix ${npix} \
-                --num_images 100 \
-                --attack_mode scheduling \
-                --success_threshold ${threshold} \
-                --verbose
-        done
-    done
-done
-
-for model in deeplabv3 pspnet; do
-    for threshold in 0.1; do
-        for npix in 1960; do
-            python spaevo_eval.py --config configs_attack/VOC2012/config_${model}.py \
-                --max_query 999 \
-                --num_images 10 \
-                --n_pix ${npix} \
-                --success_threshold ${threshold} \
-                --verbose
-        done
-    done
-done
 
 python pw_eval.py --config configs_attack/VOC2012/config_deeplabv3.py \
     --max_query 1000 \
-    --npix 0.004 \
-    --num_images 100 \
+    --npix 0.1 \
+    --num_images 3 \
     --attack_mode scheduling \
-    --success_threshold 0.3 \
+    --success_threshold 0.2 \
+    --label_only_attack \
     --verbose
 
 python spaevo_eval.py --config configs_attack/VOC2012/config_deeplabv3.py \
-    --max_query 999 \
-    --num_images 100 \
+    --max_query 1000 \
+    --num_images 3 \
     --n_pix 1960 \
-    --success_threshold 0.3 \
+    --success_threshold 0.2 \
+    --label_only_attack \
     --verbose
