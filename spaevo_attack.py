@@ -143,7 +143,7 @@ class SpaEvoAttack():
         
         return out
 
-    def uni_rand(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False):
+    def uni_rand(self, oimg, timg, original_pred_labels, target_labels=None, targeted=False, max_query=None):
         """
         원본 방식: 전체 차이(p1)에서 시작하여 n개 픽셀을 제거하면서
         공격이 여전히 성공하는 마스크를 찾습니다.
@@ -168,11 +168,21 @@ class SpaEvoAttack():
         if total_diff < self.n_pix:
             self.n_pix = int(total_diff)
 
+        query_exhausted = False
+
         for i in range(self.pop_size):
+            if query_exhausted:
+                break
+
             n = self.n_pix  # 제거할 픽셀 수
             j = 0
             
             while True:
+                # max_query 초과 시 early exit
+                if max_query is not None and nqry >= max_query:
+                    query_exhausted = True
+                    break
+
                 p = p1.copy()
                 
                 # n개 픽셀을 랜덤하게 선택하여 제거 (0으로 설정 = 원본으로 복구)
@@ -194,6 +204,11 @@ class SpaEvoAttack():
                 elif n == 1:
                     # 하나씩 제거하며 시도
                     while j < len(idxs):
+                        # max_query 초과 시 early exit
+                        if max_query is not None and nqry >= max_query:
+                            query_exhausted = True
+                            break
+
                         p = p1.copy()
                         p[idxs[j]] = 0
                         nqry += 1
@@ -206,7 +221,7 @@ class SpaEvoAttack():
                         else:
                             j += 1
                     
-                    if j >= len(idxs):
+                    if not query_exhausted and j >= len(idxs):
                         # 아무것도 제거 못함 -> 전체 마스크 사용
                         pop.append(p1.copy())
                         fit[i] = self.feval(p1, oimg, timg, original_pred_labels, target_labels, targeted)
@@ -325,7 +340,7 @@ class SpaEvoAttack():
         
         # 1. population init
         # uni_rand now selects a SPARSE subset of timg to start with
-        pop, nqry, fitness = self.uni_rand(oimg, timg, original_pred_labels, target_labels, targeted)
+        pop, nqry, fitness = self.uni_rand(oimg, timg, original_pred_labels, target_labels, targeted, max_query=max_query)
         
         if len(pop) > 0:
             # 2. find the worst & best
