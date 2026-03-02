@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GPU 4 (느린 GPU, 2개, ~10시간)
-#   pspnet × false × {4e-2, 5e-2}
+# GPU 4 (느린 GPU, 6t)
+#   pspnet × false × {3e-2, 4e-2, 5e-2} (3 × 2t = 6t)
+#   합계: 6t
 
 DATASET="${DATASET-cityscapes}"
 MAX_ITER=200
@@ -31,7 +32,7 @@ esac
 MODEL="pspnet"
 UNPROJECTED="false"
 
-for ATTACK_PIXEL in "4e-2" "5e-2"; do
+for ATTACK_PIXEL in "3e-2" "4e-2" "5e-2"; do
   echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
   python spgd_seg_voc_attack.py \
     --dataset "${DATASET}" \

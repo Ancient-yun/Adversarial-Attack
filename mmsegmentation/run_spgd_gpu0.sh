@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GPU 0 (빠른 GPU, 6개, ~15시간)
-#   deeplabv3 × true  × {1e-2, 2e-2, 3e-2, 4e-2, 5e-2}
-#   deeplabv3 × false × {1e-2}
+# GPU 0 (빠른 GPU, 6.8t)
+#   deeplabv3 × true  × {1e-2, 2e-2}           (2 × 1.4t = 2.8t)
+#   pspnet    × true  × {1e-2, 2e-2, 3e-2, 4e-2} (4 × t = 4t)
+#   합계: 6.8t
 
 DATASET="${DATASET-cityscapes}"
 MAX_ITER=200
@@ -29,10 +30,10 @@ case "${DATASET}" in
     ;;
 esac
 
-# deeplabv3 × true × 5개
+# deeplabv3 × true × 2개
 MODEL="deeplabv3"
 UNPROJECTED="true"
-for ATTACK_PIXEL in "1e-2" "2e-2" "3e-2" "4e-2" "5e-2"; do
+for ATTACK_PIXEL in "1e-2" "2e-2"; do
   echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
   python spgd_seg_voc_attack.py \
     --dataset "${DATASET}" \
@@ -46,18 +47,19 @@ for ATTACK_PIXEL in "1e-2" "2e-2" "3e-2" "4e-2" "5e-2"; do
     --unprojected_gradient "${UNPROJECTED}"
 done
 
-# deeplabv3 × false × 1개
-MODEL="deeplabv3"
-UNPROJECTED="false"
-ATTACK_PIXEL="1e-2"
-echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
-python spgd_seg_voc_attack.py \
-  --dataset "${DATASET}" \
-  --model "${MODEL}" \
-  --data_dir "${DATA_DIR}" \
-  --base_dir "${BASE_DIR}" \
-  --attack_pixel "${ATTACK_PIXEL}" \
-  --max_iter "${MAX_ITER}" \
-  --save_interval "${SAVE_INTERVAL}" \
-  --early_stop "${EARLY_STOP}" \
-  --unprojected_gradient "${UNPROJECTED}"
+# pspnet × true × 4개
+MODEL="pspnet"
+UNPROJECTED="true"
+for ATTACK_PIXEL in "1e-2" "2e-2" "3e-2" "4e-2"; do
+  echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
+  python spgd_seg_voc_attack.py \
+    --dataset "${DATASET}" \
+    --model "${MODEL}" \
+    --data_dir "${DATA_DIR}" \
+    --base_dir "${BASE_DIR}" \
+    --attack_pixel "${ATTACK_PIXEL}" \
+    --max_iter "${MAX_ITER}" \
+    --save_interval "${SAVE_INTERVAL}" \
+    --early_stop "${EARLY_STOP}" \
+    --unprojected_gradient "${UNPROJECTED}"
+done

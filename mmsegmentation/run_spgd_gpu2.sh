@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GPU 2 (중간 GPU, 3개, ~12시간)
-#   pspnet × true × {3e-2, 4e-2, 5e-2}
+# GPU 2 (중간 GPU, 6.72t)
+#   deeplabv3 × false × {2e-2, 3e-2, 4e-2}  (3 × 2.24t = 6.72t)
+#   합계: 6.72t
 
 DATASET="${DATASET-cityscapes}"
 MAX_ITER=200
@@ -28,10 +29,10 @@ case "${DATASET}" in
     ;;
 esac
 
-MODEL="pspnet"
-UNPROJECTED="true"
+MODEL="deeplabv3"
+UNPROJECTED="false"
 
-for ATTACK_PIXEL in "3e-2" "4e-2" "5e-2"; do
+for ATTACK_PIXEL in "2e-2" "3e-2" "4e-2"; do
   echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
   python spgd_seg_voc_attack.py \
     --dataset "${DATASET}" \

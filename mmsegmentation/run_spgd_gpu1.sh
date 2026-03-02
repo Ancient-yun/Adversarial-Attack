@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GPU 1 (빠른 GPU, 6개, ~15시간)
-#   deeplabv3 × false × {2e-2, 3e-2, 4e-2, 5e-2}
-#   pspnet    × true  × {1e-2, 2e-2}
+# GPU 1 (빠른 GPU, 6.6t)
+#   deeplabv3 × true  × {3e-2, 4e-2, 5e-2}  (3 × 1.4t = 4.2t)
+#   deeplabv3 × false × {1e-2}               (1 × 1.4t = 1.4t)
+#   pspnet    × true  × {5e-2}               (1 × t = t)
+#   합계: 6.6t
 
 DATASET="${DATASET-cityscapes}"
 MAX_ITER=200
@@ -29,10 +31,10 @@ case "${DATASET}" in
     ;;
 esac
 
-# deeplabv3 × false × 4개
+# deeplabv3 × true × 3개
 MODEL="deeplabv3"
-UNPROJECTED="false"
-for ATTACK_PIXEL in "2e-2" "3e-2" "4e-2" "5e-2"; do
+UNPROJECTED="true"
+for ATTACK_PIXEL in "3e-2" "4e-2" "5e-2"; do
   echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
   python spgd_seg_voc_attack.py \
     --dataset "${DATASET}" \
@@ -46,19 +48,34 @@ for ATTACK_PIXEL in "2e-2" "3e-2" "4e-2" "5e-2"; do
     --unprojected_gradient "${UNPROJECTED}"
 done
 
-# pspnet × true × 2개
+# deeplabv3 × false × 1개
+MODEL="deeplabv3"
+UNPROJECTED="false"
+ATTACK_PIXEL="1e-2"
+echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
+python spgd_seg_voc_attack.py \
+  --dataset "${DATASET}" \
+  --model "${MODEL}" \
+  --data_dir "${DATA_DIR}" \
+  --base_dir "${BASE_DIR}" \
+  --attack_pixel "${ATTACK_PIXEL}" \
+  --max_iter "${MAX_ITER}" \
+  --save_interval "${SAVE_INTERVAL}" \
+  --early_stop "${EARLY_STOP}" \
+  --unprojected_gradient "${UNPROJECTED}"
+
+# pspnet × true × 1개
 MODEL="pspnet"
 UNPROJECTED="true"
-for ATTACK_PIXEL in "1e-2" "2e-2"; do
-  echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
-  python spgd_seg_voc_attack.py \
-    --dataset "${DATASET}" \
-    --model "${MODEL}" \
-    --data_dir "${DATA_DIR}" \
-    --base_dir "${BASE_DIR}" \
-    --attack_pixel "${ATTACK_PIXEL}" \
-    --max_iter "${MAX_ITER}" \
-    --save_interval "${SAVE_INTERVAL}" \
-    --early_stop "${EARLY_STOP}" \
-    --unprojected_gradient "${UNPROJECTED}"
-done
+ATTACK_PIXEL="5e-2"
+echo "Running sPGD-seg attack for ${DATASET} ${MODEL} (attack_pixel=${ATTACK_PIXEL}, unprojected_gradient=${UNPROJECTED})"
+python spgd_seg_voc_attack.py \
+  --dataset "${DATASET}" \
+  --model "${MODEL}" \
+  --data_dir "${DATA_DIR}" \
+  --base_dir "${BASE_DIR}" \
+  --attack_pixel "${ATTACK_PIXEL}" \
+  --max_iter "${MAX_ITER}" \
+  --save_interval "${SAVE_INTERVAL}" \
+  --early_stop "${EARLY_STOP}" \
+  --unprojected_gradient "${UNPROJECTED}"
