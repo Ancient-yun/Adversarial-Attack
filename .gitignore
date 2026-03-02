@@ -121,6 +121,7 @@ mmseg/.mim
 
 plots/
 *.sh
+!mmsegmentation/run_spgd_gpu*.sh
 *.pdf
 *.ckpt/
 ckpt/*  
