@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import inspect
 import os
 
 import numpy as np
@@ -83,6 +84,14 @@ def save_attack_diagnostics(diagnostics, save_path, args):
     }
 
 
+def print_run_config(config):
+    print("Run Config")
+    print("========================================")
+    for key in sorted(config.keys()):
+        print(f"{key}: {config[key]}")
+    print("========================================")
+
+
 def run_experiment(args):
     seed_all(args.seed)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -116,12 +125,18 @@ def run_experiment(args):
         early_stop=args.early_stop,
         attack_mode=args.attack_mode,
     )
-    attacker.configure_segmentation(
+    cfg_kwargs = dict(
         ignore_index=args.ignore_index,
         acc_threshold=args.correct_threshold,
         forward_mode=args.forward_mode,
         enable_constraints_check=args.enable_constraints_check,
     )
+    cfg_params = inspect.signature(attacker.configure_segmentation).parameters
+    if "auto_mmseg_input_scale_to_255" in cfg_params:
+        cfg_kwargs["auto_mmseg_input_scale_to_255"] = args.auto_mmseg_input_scale_to_255
+    elif not args.auto_mmseg_input_scale_to_255:
+        print("[warning] auto_mmseg_input_scale_to_255 is not supported by current sPGD module. Ignoring.")
+    attacker.configure_segmentation(**cfg_kwargs)
 
     start_time = datetime.datetime.now()
     start_timestamp = start_time.strftime("%Y%m%d_%H%M%S")
@@ -141,6 +156,7 @@ def run_experiment(args):
         "model": args.model,
         "data_dir": data_dir,
         "base_dir": base_dir_root,
+        "output_dir": base_dir,
         "num_class": dataset_cfg["num_class"],
         "device": str(device),
         "type_attack": "L0-sPGD",
@@ -148,7 +164,9 @@ def run_experiment(args):
         "unprojected_gradient": bool(args.unprojected_gradient),
         "max_iter": args.max_iter,
         "save_interval": args.save_interval,
+        "auto_mmseg_input_scale_to_255": bool(args.auto_mmseg_input_scale_to_255),
     }
+    print_run_config(config)
 
     save_points = list(range(args.save_interval, args.max_iter + 1, args.save_interval))
     if len(save_points) == 0 or save_points[-1] != args.max_iter:
@@ -290,6 +308,12 @@ def parse_args():
     parser.add_argument("--correct_threshold", type=float, default=0.0)
     parser.add_argument("--ignore_index", type=int, default=255)
     parser.add_argument("--forward_mode", type=str, default="auto", choices=["auto", "model", "mmseg"])
+    parser.add_argument(
+        "--auto_mmseg_input_scale_to_255",
+        type=str2bool,
+        default=False,
+        help="Auto-rescale [0,1] inputs to [0,255] before mmseg data_preprocessor when needed.",
+    )
     parser.add_argument("--enable_constraints_check", type=str2bool, default=False)
     parser.add_argument("--random_start", type=str2bool, default=True)
     parser.add_argument("--unprojected_gradient", type=str2bool, default=False)
