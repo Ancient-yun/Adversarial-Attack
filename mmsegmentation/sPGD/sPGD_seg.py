@@ -159,7 +159,7 @@ def load_seg_dataset(dataset_name: str, data_dir: str, use_gt: bool = True):
 
     dataset = dataset_map[dataset_name](dataset_dir=data_dir, use_gt=use_gt)
     original_images = [img.copy() for img in dataset.images]
-    x_nat_list = [img.astype(np.float32) / 255.0 for img in original_images]
+    x_nat_list = [img.astype(np.float32) for img in original_images]
     num_class = DATASET_CONFIGS[dataset_name]["num_class"]
     y_nat_list = []
     total_bad_labels = 0
@@ -220,7 +220,7 @@ def _extract_mmseg_logits(output: Any) -> torch.Tensor:
     raise TypeError(f"Unsupported mmseg output type: {type(output)}")
 
 
-def build_mmseg_logits(model, x_input: torch.Tensor, auto_input_scale_to_255: bool = False) -> torch.Tensor:
+def build_mmseg_logits(model, x_input: torch.Tensor) -> torch.Tensor:
     """
     Build segmentation logits using mmseg data_preprocessor + inference flow.
 
@@ -243,26 +243,6 @@ def build_mmseg_logits(model, x_input: torch.Tensor, auto_input_scale_to_255: bo
         x_nchw = x_input.permute(0, 3, 1, 2).contiguous()
     else:
         raise ValueError(f"Cannot infer channel dimension from shape: {tuple(x_input.shape)}")
-
-    if auto_input_scale_to_255:
-        # Most mmseg configs normalize with mean/std in 0..255 scale.
-        # Our attack tensors are often in 0..1, so rescale when needed.
-        dp = getattr(model, "data_preprocessor", None)
-        dp_mean = getattr(dp, "mean", None) if dp is not None else None
-        if torch.is_tensor(dp_mean):
-            try:
-                mean_scalar = float(dp_mean.detach().float().mean().item())
-            except Exception:
-                mean_scalar = None
-        else:
-            mean_scalar = None
-        if mean_scalar is not None:
-            # Heuristic: mean around ImageNet scale (>10) implies 0..255 input expectation.
-            # If current tensor is 0..1 range, lift to 0..255 before data_preprocessor.
-            with torch.no_grad():
-                x_max = float(x_nchw.detach().amax().item())
-            if mean_scalar > 10.0 and x_max <= 1.5:
-                x_nchw = x_nchw * 255.0
 
     n, _, h, w = x_nchw.shape
     data_samples = []
@@ -343,7 +323,7 @@ def save_segmentation_checkpoint(
 
     Expected inputs:
     - original_images: uint8 HWC(BGR) list
-    - adv_images_float: [0,1] float HWC list
+    - adv_images_float: float HWC list in either [0,1] or [0,255] scale
     """
     from PIL import Image
     from mmseg.apis import inference_model
@@ -371,7 +351,12 @@ def save_segmentation_checkpoint(
             f"Length mismatch: dataset.filenames={len(dataset.filenames)}, original_images={len(original_images)}"
         )
 
-    adv_examples = [np.clip((x * 255.0).round(), 0, 255).astype(np.uint8) for x in adv_images_float]
+    adv_examples = []
+    for x in adv_images_float:
+        x_arr = np.asarray(x, dtype=np.float32)
+        if float(np.nanmax(x_arr)) <= 1.5:
+            x_arr = x_arr * 255.0
+        adv_examples.append(np.clip(np.round(x_arr), 0, 255).astype(np.uint8))
     l0_list: List[int] = []
     ratio_list: List[float] = []
     impact_list: List[float] = []
@@ -535,7 +520,6 @@ class SegSparsePGD(object):
         self.bounds_cfg: Optional[Dict[str, Any]] = None
         self.logits_extractor: Optional[Callable[[Any], torch.Tensor]] = None
         self.enable_constraints_check = False
-        self.auto_mmseg_input_scale_to_255 = False
         self._unit_bounds_cache: Dict[Tuple[str, Optional[int], torch.dtype, int], Tuple[torch.Tensor, torch.Tensor]] = {}
         self._auto_use_mmseg_forward: Optional[bool] = None
 
@@ -547,7 +531,6 @@ class SegSparsePGD(object):
         bounds: Optional[Tuple[Any, Any]] = None,
         logits_extractor: Optional[Callable[[Any], torch.Tensor]] = None,
         enable_constraints_check: Optional[bool] = None,
-        auto_mmseg_input_scale_to_255: Optional[bool] = None,
     ):
         """Optional runtime config without changing constructor args."""
         if ignore_index is not None:
@@ -567,8 +550,6 @@ class SegSparsePGD(object):
             self.logits_extractor = logits_extractor
         if enable_constraints_check is not None:
             self.enable_constraints_check = bool(enable_constraints_check)
-        if auto_mmseg_input_scale_to_255 is not None:
-            self.auto_mmseg_input_scale_to_255 = bool(auto_mmseg_input_scale_to_255)
 
     def set_bounds(self, low: Any, high: Any):
         self.bounds_cfg = {"low": low, "high": high}
@@ -601,7 +582,7 @@ class SegSparsePGD(object):
             if cached is not None:
                 return cached
             low = torch.zeros((1, x.size(1), 1, 1), device=x.device, dtype=x.dtype)
-            high = torch.ones((1, x.size(1), 1, 1), device=x.device, dtype=x.dtype)
+            high = torch.full((1, x.size(1), 1, 1), 255.0, device=x.device, dtype=x.dtype)
             self._unit_bounds_cache[key] = (low, high)
             return low, high
         low = self._to_bound_tensor(self.bounds_cfg["low"], x)
@@ -674,11 +655,7 @@ class SegSparsePGD(object):
             use_mmseg_forward = self._auto_use_mmseg_forward
 
         if use_mmseg_forward:
-            logits = build_mmseg_logits(
-                self.model,
-                x_adv,
-                auto_input_scale_to_255=self.auto_mmseg_input_scale_to_255,
-            )
+            logits = build_mmseg_logits(self.model, x_adv)
         else:
             logits = self._extract_logits(self.model(x_adv))
         if logits.dim() != 4:

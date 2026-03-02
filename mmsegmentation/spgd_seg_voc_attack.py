@@ -1,6 +1,5 @@
 import argparse
 import datetime
-import inspect
 import os
 
 import numpy as np
@@ -125,18 +124,13 @@ def run_experiment(args):
         early_stop=args.early_stop,
         attack_mode=args.attack_mode,
     )
-    cfg_kwargs = dict(
+    attacker.configure_segmentation(
         ignore_index=args.ignore_index,
         acc_threshold=args.correct_threshold,
         forward_mode=args.forward_mode,
+        bounds=(0.0, 255.0),
         enable_constraints_check=args.enable_constraints_check,
     )
-    cfg_params = inspect.signature(attacker.configure_segmentation).parameters
-    if "auto_mmseg_input_scale_to_255" in cfg_params:
-        cfg_kwargs["auto_mmseg_input_scale_to_255"] = args.auto_mmseg_input_scale_to_255
-    elif not args.auto_mmseg_input_scale_to_255:
-        print("[warning] auto_mmseg_input_scale_to_255 is not supported by current sPGD module. Ignoring.")
-    attacker.configure_segmentation(**cfg_kwargs)
 
     start_time = datetime.datetime.now()
     start_timestamp = start_time.strftime("%Y%m%d_%H%M%S")
@@ -157,6 +151,7 @@ def run_experiment(args):
         "data_dir": data_dir,
         "base_dir": base_dir_root,
         "output_dir": base_dir,
+        "input_value_range": "0..255",
         "num_class": dataset_cfg["num_class"],
         "device": str(device),
         "type_attack": "L0-sPGD",
@@ -164,7 +159,6 @@ def run_experiment(args):
         "unprojected_gradient": bool(args.unprojected_gradient),
         "max_iter": args.max_iter,
         "save_interval": args.save_interval,
-        "auto_mmseg_input_scale_to_255": bool(args.auto_mmseg_input_scale_to_255),
     }
     print_run_config(config)
 
@@ -201,7 +195,7 @@ def run_experiment(args):
                     loss_t, _ = attacker.loss_fn(logits_adv, y, targeted=False, target=None)
 
             adv = x_adv_t.squeeze(0).detach().permute(1, 2, 0).cpu().numpy()
-            adv_clipped = np.clip(adv, 0.0, 1.0)
+            adv_clipped = np.clip(adv, 0.0, 255.0)
             step_adv_images[step_t].append(adv_clipped)
             step_robust_flags[step_t].append(float(robust_t.item()))
             step_iter_used[step_t].append(int(it_t.item()))
@@ -299,7 +293,7 @@ def parse_args():
     parser.add_argument("--max_iter", type=int, default=1000, help="sPGD iterations (t)")
     parser.add_argument("--save_interval", type=int, default=200, help="metric save interval")
     parser.add_argument("--attack_pixel", type=float, default=1e-2, help="L0 ratio budget per image")
-    parser.add_argument("--epsilon", type=float, default=1.0)
+    parser.add_argument("--epsilon", type=float, default=255.0)
     parser.add_argument("--alpha", type=float, default=0.25)
     parser.add_argument("--beta", type=float, default=0.25)
     parser.add_argument("--patience", type=int, default=3)
@@ -308,12 +302,6 @@ def parse_args():
     parser.add_argument("--correct_threshold", type=float, default=0.0)
     parser.add_argument("--ignore_index", type=int, default=255)
     parser.add_argument("--forward_mode", type=str, default="auto", choices=["auto", "model", "mmseg"])
-    parser.add_argument(
-        "--auto_mmseg_input_scale_to_255",
-        type=str2bool,
-        default=False,
-        help="Auto-rescale [0,1] inputs to [0,255] before mmseg data_preprocessor when needed.",
-    )
     parser.add_argument("--enable_constraints_check", type=str2bool, default=False)
     parser.add_argument("--random_start", type=str2bool, default=True)
     parser.add_argument("--unprojected_gradient", type=str2bool, default=False)
