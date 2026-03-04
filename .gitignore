@@ -139,3 +139,4 @@ SED/ckpt/*
 wandb/
 *.png
 !Robust-Semantic-Segmentation/run.bash
+!Robust-Semantic-Segmentation/lib
