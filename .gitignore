@@ -138,3 +138,4 @@ SED/ckpt/*
 **/output/
 wandb/
 *.png
+!Robust-Semantic-Segmentation/run.bash
