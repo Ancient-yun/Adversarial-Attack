@@ -477,6 +477,14 @@ def main(config):
             "pspnet": {
                 "config": 'configs/pspnet/pspnet_r101-d8_4xb4-40k_voc12aug-512x512.py',
                 "checkpoint": '../ckpt/pspnet_r101-d8_512x512_20k_voc12aug_20200617_102003-4aef3c9a.pth'
+            },
+            "segformer": {
+                "config": 'configs/segformer/segformer_mit-b5_8xb2-20k_voc12aug-512x512.py',
+                "checkpoint": '../ckpt/segformer_mit-b5_8xb2-20k_voc12aug-512x512.pth'
+            },
+            "setr": {
+                "config": 'configs/setr/setr_vit-l_pup_8xb2-20k_voc12aug-512x512.py',
+                "checkpoint": '../ckpt/setr_vit-l_pup_8xb2-20k_voc12aug-512x512.pth'
             }
         }
     }
