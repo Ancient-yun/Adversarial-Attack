@@ -115,7 +115,7 @@ def load_config(config_path):
 
 
 def init_model_for_process(model_configs, dataset, model_name, device):
-    if model_name == "setr":
+    if model_name == "setr" and dataset.lower() != "voc2012":  # VOC2012 setr 모델은 patch_embed 수정 없이 로드
         model = init_model(model_configs["config"], None, 'cuda')
         checkpoint = torch.load(model_configs["checkpoint"], map_location='cuda', weights_only=False)
         model.backbone.patch_embed.projection.bias = torch.nn.Parameter(

@@ -44,7 +44,7 @@ def load_config(config_path):
 
 def init_model_for_process(model_configs, dataset, model_name, device):
     """각 프로세스에서 모델을 초기화하는 함수"""
-    if model_name == "setr":
+    if model_name == "setr" and dataset.lower() != "voc2012":
         model = init_model(model_configs["config"], None, 'cuda')
         checkpoint = torch.load(model_configs["checkpoint"], map_location='cuda', weights_only=False)
         model.backbone.patch_embed.projection.bias = torch.nn.Parameter(
